@@ -3,28 +3,70 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def versionJsonFile = file("${project.projectDir}/../../version.json")
+def versionJson = new groovy.json.JsonSlurper().parse(versionJsonFile)
+def qcfg = { String s -> s.replace('\\', '\\\\').replace('"', '\\"') }
+
 android {
     namespace 'dev.shivampingale.vcport'
     compileSdk 35
+    ndkVersion '26.3.11579264'
 
     defaultConfig {
         applicationId 'dev.shivampingale.vcport'
         minSdk 28
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode (versionJson.android_version_code as Integer)
+        versionName versionJson.port_version
+        buildConfigField 'String', 'PORT_VERSION', "\"${qcfg(versionJson.port_version as String)}\""
+        buildConfigField 'String', 'UPSTREAM_VERSION', "\"${qcfg(versionJson.upstream_version as String)}\""
+        buildConfigField 'String', 'UPSTREAM_COMMIT', "\"${qcfg(versionJson.upstream_commit as String)}\""
+        buildConfigField 'String', 'SOURCE_REPO', "\"${qcfg(versionJson.source_repo as String)}\""
+        buildConfigField 'String', 'SOURCE_MANIFEST', "\"${qcfg(versionJson.update_manifest as String)}\""
+        // Official VeraCrypt git + GitHub latest-release API. GitHub flavor may GET this
+        // when the user taps Check for updates. The APK never fetches src/ or installs itself.
+        buildConfigField 'String', 'UPSTREAM_GIT', "\"${qcfg(versionJson.upstream_git as String)}\""
+        buildConfigField 'String', 'UPSTREAM_RELEASES', "\"${qcfg(versionJson.upstream_releases as String)}\""
+        buildConfigField 'String', 'UPSTREAM_TAG', "\"${qcfg(versionJson.upstream_tag as String)}\""
         ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
         externalNativeBuild {
             cmake {
-                arguments '-DANDROID_STL=c++_shared'
+                arguments '-DANDROID_STL=c++_shared', '-DANDROID_PLATFORM=android-28'
             }
+        }
+    }
+
+    flavorDimensions += 'distribution'
+    productFlavors {
+        fdroid {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'
+        }
+        github {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            // CI / GitHub preview: debug-signed until a release keystore is set.
+            // F-Droid rebuilds from source and signs with the F-Droid key.
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
         }
     }
 
     buildFeatures {
         compose true
+        buildConfig true
     }
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.14'
@@ -37,20 +79,47 @@ android {
         jvmTarget = '17'
     }
     externalNativeBuild {
-            cmake {
-                path file('../../shared/CMakeLists.txt')
-            }
+        cmake {
+            path file('../../shared/CMakeLists.txt')
+        }
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+    lint {
+        abortOnError true
+        disable 'GoogleAppIndexingWarning', 'ExpiredTargetSdkVersion'
+    }
+}
+
+def releaseStore = System.getenv('VC_PORT_RELEASE_STORE_FILE')
+if (releaseStore) {
+    android.signingConfigs {
+        create('release') {
+            storeFile file(releaseStore)
+            storePassword System.getenv('VC_PORT_RELEASE_STORE_PASSWORD') ?: ''
+            keyAlias System.getenv('VC_PORT_RELEASE_KEY_ALIAS') ?: ''
+            keyPassword System.getenv('VC_PORT_RELEASE_KEY_PASSWORD') ?: ''
+        }
+    }
+    android.buildTypes.release.signingConfig = android.signingConfigs.release
 }
 
 dependencies {
     implementation platform('androidx.compose:compose-bom:2024.06.00')
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-core'
+    implementation 'androidx.activity:activity-compose:1.9.1'
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.fragment:fragment-ktx:1.8.2'
     implementation 'androidx.biometric:biometric:1.1.0'
-    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     implementation 'androidx.documentfile:documentfile:1.0.1'
 }

@@ -70,8 +70,9 @@ object ShareHelper {
     }
 
     fun persistRead(context: Context, uri: Uri) {
+        // High-threat: do not persist URI grants across reboots (SAF leftover on seizure).
         try {
-            context.contentResolver.takePersistableUriPermission(
+            context.contentResolver.releasePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
@@ -94,6 +95,25 @@ object ShareHelper {
         } ?: return null
         return dest
     }
+
+    fun sanitizeDisguiseName(raw: String): String {
+        var name = safeName(raw.trim()).substringAfterLast('/').substringAfterLast('\\')
+        if (name.isEmpty() || name == "." || name == "..") return "volume.hc"
+        if (name.lowercase().endsWith(".vcpw")) name = name.dropLast(5)
+        if (name.isEmpty()) return "volume.hc"
+        return name.take(120)
+    }
+
+    val DISGUISE_NAMES = listOf(
+        "volume.hc",
+        "photo.jpg",
+        "image.png",
+        "clip.mp4",
+        "notes.pdf",
+        "model.safetensors",
+        "adapter.lora",
+        "weights.bin"
+    )
 
     fun looksLikeContainer(name: String): Boolean {
         val lower = name.lowercase()
