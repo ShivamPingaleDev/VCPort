@@ -48,6 +48,19 @@ struct VcVolume
 	int read_only;
 };
 
+void vc_runtime_start (void)
+{
+	try
+	{
+		if (!EncryptionThreadPool::IsRunning ())
+			EncryptionThreadPool::Start ();
+	}
+	catch (...)
+	{
+		/* 1 CPU or thread limit: stay on the caller thread for XTS. */
+	}
+}
+
 static shared_ptr <KeyfileList> MakeKeyfilesFrom (const char *const *keyfiles, size_t count)
 {
 	if (!keyfiles || count == 0)
@@ -91,8 +104,32 @@ VcVolume *vc_open (const VcOpenOptions *options, int *error)
 			reinterpret_cast <const uint8 *> (pw), pwLen));
 
 		shared_ptr <Volume> volume (new Volume);
-		if (!EncryptionThreadPool::IsRunning ())
-			EncryptionThreadPool::Start ();
+		vc_runtime_start ();
+
+		shared_ptr <VolumePassword> protPassword;
+		int protPim = 0;
+		shared_ptr <KeyfileList> protKeyfiles;
+		VolumeProtection::Enum protection = VolumeProtection::None;
+		if (options->read_only)
+			protection = VolumeProtection::ReadOnly;
+		else if (options->protect_hidden)
+		{
+			const char *hp = options->hidden_password ? options->hidden_password : "";
+			size_t hpLen = options->hidden_password_len;
+			if (!hpLen && options->hidden_password)
+				hpLen = strlen (options->hidden_password);
+			if (hpLen == 0 && options->hidden_keyfile_count == 0)
+			{
+				if (error)
+					*error = VC_ERR_ARGUMENT;
+				return nullptr;
+			}
+			protPassword.reset (new VolumePassword (
+				reinterpret_cast <const uint8 *> (hp), hpLen));
+			protPim = options->hidden_pim;
+			protKeyfiles = MakeKeyfilesFrom (options->hidden_keyfiles, options->hidden_keyfile_count);
+			protection = VolumeProtection::HiddenVolumeReadOnly;
+		}
 
 		volume->Open (
 			VolumePath (wstring (options->path, options->path + strlen (options->path))),
@@ -102,11 +139,11 @@ VcVolume *vc_open (const VcOpenOptions *options, int *error)
 			shared_ptr <Pkcs5Kdf> (),
 			MakeKeyfiles (options),
 			false,
-			options->read_only ? VolumeProtection::ReadOnly : VolumeProtection::None,
-			shared_ptr <VolumePassword> (),
-			0,
+			protection,
+			protPassword,
+			protPim,
 			shared_ptr <Pkcs5Kdf> (),
-			shared_ptr <KeyfileList> (),
+			protKeyfiles,
 			false,
 			VolumeType::Unknown,
 			options->use_backup_header != 0,
@@ -1035,6 +1072,8 @@ static int fat_writable (VcVolume *volume)
 		return VC_ERR_ARGUMENT;
 	if (volume->read_only)
 		return VC_ERR_UNSUPPORTED;
+	if (volume->volume->IsHiddenVolumeProtectionTriggered ())
+		return VC_ERR_IO;
 	return VC_OK;
 }
 
@@ -1568,7 +1607,7 @@ int vc_wipe_free_space (VcVolume *volume)
 }
 
 static Mutex gEntropyMutex;
-enum { VC_ENTROPY_POOL = 320, VC_ENTROPY_NEED = 2048 };
+enum { VC_ENTROPY_POOL = 320, VC_ENTROPY_NEED = 8192 };
 static uint8_t gPool[VC_ENTROPY_POOL];
 static size_t gPoolWrite = 0;
 static size_t gPoolSinceMix = 0;
@@ -1872,6 +1911,7 @@ int vc_create_volume (const VcCreateOptions *options)
 
 	try
 	{
+		vc_runtime_start ();
 		vc_progress_set (-1, "Deriving keys");
 		shared_ptr <VeraCrypt::EncryptionAlgorithm> ea = FindCipher (
 			options->cipher && options->cipher[0] ? options->cipher : "AES(Twofish(Serpent))");
@@ -1965,8 +2005,7 @@ static shared_ptr <Volume> OpenWritableVolume (const char *path, const char *pas
 	shared_ptr <VolumePassword> pw (new VolumePassword (
 		reinterpret_cast <const uint8 *> (password ? password : ""), passwordLen));
 	shared_ptr <Volume> volume (new Volume);
-	if (!EncryptionThreadPool::IsRunning ())
-		EncryptionThreadPool::Start ();
+	vc_runtime_start ();
 	volume->Open (
 		VolumePath (wstring (path, path + strlen (path))),
 		true,
@@ -2262,13 +2301,24 @@ int vc_volume_info (VcVolume *volume, char *out, size_t out_size)
 	{
 		string cipher = StringConverter::ToSingle (volume->volume->GetEncryptionAlgorithm ()->GetName (true));
 		string kdf = StringConverter::ToSingle (volume->volume->GetPkcs5Kdf ()->GetName ());
-		const char *type = volume->volume->GetType () == VolumeType::Hidden ? "Hidden" : "Normal";
+		const char *type = "Normal";
+		if (volume->volume->GetType () == VolumeType::Hidden)
+			type = "Hidden";
+		else if (volume->volume->GetProtectionType () == VolumeProtection::HiddenVolumeReadOnly)
+			type = "Outer";
+		const char *hiddenProt = "No";
+		if (volume->volume->IsHiddenVolumeProtectionTriggered ())
+			hiddenProt = "Yes (damage prevented!)";
+		else if (volume->volume->GetProtectionType () == VolumeProtection::HiddenVolumeReadOnly)
+			hiddenProt = "Yes";
 		char line[512];
 		snprintf (line, sizeof (line),
-			"Encryption algorithm: %s\nKDF: %s\nVolume type: %s\nSize: %llu bytes\nPIM: %d\nXTS",
+			"Encryption algorithm: %s\nKDF: %s\nVolume type: %s\nSize: %llu bytes\nPIM: %d\nXTS\nHidden Volume Protected: %s\nSector size: %u",
 			cipher.c_str (), kdf.c_str (), type,
 			(unsigned long long) volume->volume->GetSize (),
-			volume->volume->GetPim ());
+			volume->volume->GetPim (),
+			hiddenProt,
+			(unsigned) volume->volume->GetSectorSize ());
 		snprintf (out, out_size, "%s", line);
 		return VC_OK;
 	}
@@ -2278,14 +2328,20 @@ int vc_volume_info (VcVolume *volume, char *out, size_t out_size)
 	}
 }
 
+int vc_protection_triggered (VcVolume *volume)
+{
+	if (!volume || !volume->volume)
+		return 0;
+	return volume->volume->IsHiddenVolumeProtectionTriggered () ? 1 : 0;
+}
+
 int vc_benchmark (char *out, size_t out_size)
 {
 	if (!out || out_size < 8)
 		return VC_ERR_ARGUMENT;
 	try
 	{
-		if (!EncryptionThreadPool::IsRunning ())
-			EncryptionThreadPool::Start ();
+		vc_runtime_start ();
 		string result;
 		const size_t bytes = 1024 * 1024;
 		SecureBuffer buf (bytes);

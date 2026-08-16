@@ -85,11 +85,44 @@ class Phase3FatFolderTests(unittest.TestCase):
         self.assertIn("mkdir INBOX", test)
         self.assertIn("wipe free space", test)
 
+    def test_lifecycle_simulation_covers_roundtrip(self) -> None:
+        test = read("ports/shared/test_lifecycle_main.cpp")
+        self.assertIn("create AES(Twofish(Serpent))/HMAC-SHA-512", test)
+        self.assertIn("create biometric password", test)
+        self.assertIn("store VCF2 remember bundle", test)
+        self.assertIn("load VCF2 remember bundle", test)
+        self.assertIn("open with password PIM and biometric", test)
+        self.assertIn("mkdir VAULT", test)
+        self.assertIn("import NOTE.TXT", test)
+        self.assertIn("close volume", test)
+        self.assertIn("reopen with stored factors", test)
+        self.assertIn("payload still matches", test)
+        self.assertIn("wrong password is rejected", test)
+        self.assertIn("wrong PIM is rejected", test)
+        self.assertIn("missing biometric is rejected", test)
+        self.assertIn("password-only PIM", test)
+        self.assertIn("bio-only PIM", test)
+        self.assertIn("generated 64", test)
+        self.assertIn("PIM 0", test)
+        self.assertIn("PIM 1", test)
+        self.assertIn("PIM 5", test)
+        self.assertIn("PIM 12", test)
+        self.assertIn("98", test)
+        self.assertIn("485", test)
+        self.assertIn("phone session", test)
+        self.assertIn("wrapFile encrypt", test)
+        self.assertIn("unwrapFile decrypt", test)
+        self.assertIn("changeHeader", test)
+
     def test_android_and_ios_browse_folders(self) -> None:
         android = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         ios = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("listDir", android)
         self.assertIn("Tap a folder", android)
+        self.assertIn("Mounted in this app", android)
+        self.assertIn("Mounted in this app", ios)
+        self.assertIn("Dismount", android)
+        self.assertIn("Dismount", ios)
         self.assertIn("!truncated!", android)
         self.assertIn("Load more", android)
         self.assertIn("listDir", ios)
@@ -117,6 +150,12 @@ class Phase4AndroidTests(unittest.TestCase):
         self.assertIn("Wrong password", main)
         self.assertIn("Could not extract", main)
         self.assertIn("NativeBridge.listDir", main)
+        self.assertIn("tab_volume", main)
+        self.assertIn("testTag", main)
+        self.assertIn("NativeBridge.mkdir", main)
+        mkdir = main[main.find("fun mkdirInVolume") : main.find("fun renameVaultEntry")]
+        self.assertIn("Thread", mkdir)
+        self.assertIn("NativeBridge.mkdir", mkdir)
         self.assertIn("Not enough memory to open the volume.", main)
         self.assertIn("Missing path or password argument.", main)
         self.assertIn("formatUpdateStatus", main)
@@ -235,22 +274,22 @@ class Phase8CiTests(unittest.TestCase):
 
 
 class Phase9LegalVersionTests(unittest.TestCase):
-    def test_current_version_is_0_3_0(self) -> None:
+    def test_current_version_is_0_3_1(self) -> None:
         v = load_version()
-        self.assertEqual(v["port_version"], "0.3.0")
+        self.assertEqual(v["port_version"], "0.3.1")
         self.assertEqual(v["upstream_version"], "1.26.29")
         self.assertEqual(v["upstream_commit"], "b48e31f5b47da7d41025e3f0e02751675e15005a")
         self.assertEqual(v["upstream_git"], "https://github.com/veracrypt/VeraCrypt.git")
         self.assertEqual(v["upstream_tag"], "VeraCrypt_1.26.29")
         h = read("src/Main/PortVersion.h")
-        self.assertIn('#define VC_PORT_VERSION\t\t\t"0.3.0"', h)
+        self.assertIn('#define VC_PORT_VERSION\t\t\t"0.3.1"', h)
         gradle = read("ports/android/app/build.gradle")
         self.assertIn("versionJson.port_version", gradle)
         self.assertIn("android_version_code", gradle)
-        self.assertEqual(v["android_version_code"], 5)
-        notes = resolve("ports/android/fastlane/metadata/android/en-US/changelogs/5.txt")
-        self.assertTrue(notes.is_file(), "missing Fastlane changelog for versionCode 5")
-        self.assertIn("FAT folder", notes.read_text(encoding="utf-8"))
+        self.assertEqual(v["android_version_code"], 6)
+        notes = resolve("ports/android/fastlane/metadata/android/en-US/changelogs/6.txt")
+        self.assertTrue(notes.is_file(), "missing Fastlane changelog for versionCode 6")
+        self.assertIn("hidden-volume", notes.read_text(encoding="utf-8"))
         self.assertIn("not unbreakable", notes.read_text(encoding="utf-8").lower())
 
     def test_about_and_contact_on_every_surface(self) -> None:
@@ -324,6 +363,7 @@ class Phase10RelaunchTests(unittest.TestCase):
 
     def test_hash_source_and_refuse_write_on_dirty_tree(self) -> None:
         import subprocess
+        from pathlib import Path
 
         script = str(resolve("ports/scripts/hash_release.py"))
         src = subprocess.run(
@@ -334,14 +374,19 @@ class Phase10RelaunchTests(unittest.TestCase):
         )
         self.assertEqual(src.returncode, 0, src.stderr)
         self.assertRegex(src.stdout.strip(), r"^[0-9a-f]{64}$")
-        write = subprocess.run(
-            ["python3", script, "--source", "--write"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(write.returncode, 0)
-        self.assertIn("dirty", (write.stderr + write.stdout).lower())
+        marker = ROOT / "ports/.hash-write-dirty-check"
+        marker.write_text("dirty\n", encoding="utf-8")
+        try:
+            write = subprocess.run(
+                ["python3", script, "--source", "--write"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(write.returncode, 0)
+            self.assertIn("dirty", (write.stderr + write.stdout).lower())
+        finally:
+            marker.unlink(missing_ok=True)
 
     def test_changelog_covers_hardening_cycle(self) -> None:
         log = read("ports/CHANGELOG.md")

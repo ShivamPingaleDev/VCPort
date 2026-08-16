@@ -14,9 +14,15 @@ struct VcStatusCode: Error {
 }
 
 enum VcMobileBridge {
-    static func open(path: String, password: String, pim: Int32, keyfiles: [String], useBackupHeader: Bool = false, readOnly: Bool = false, error: UnsafeMutablePointer<Int32>) -> OpaquePointer? {
+    static func startCpu() {
+        vc_runtime_start()
+    }
+
+    static func open(path: String, password: String, pim: Int32, keyfiles: [String], useBackupHeader: Bool = false, readOnly: Bool = false, protectHidden: Bool = false, hiddenPassword: String = "", hiddenPim: Int32 = 0, error: UnsafeMutablePointer<Int32>) -> OpaquePointer? {
+        startCpu()
         path.withCString { cPath in
             password.withCString { cPassword in
+                hiddenPassword.withCString { cHidden in
                 withCStringArray(keyfiles) { pointer, count in
                     var options = VcOpenOptions()
                     options.path = cPath
@@ -27,7 +33,12 @@ enum VcMobileBridge {
                     options.keyfiles = pointer
                     options.keyfile_count = count
                     options.read_only = readOnly ? 1 : 0
+                    options.protect_hidden = protectHidden ? 1 : 0
+                    options.hidden_password = cHidden
+                    options.hidden_password_len = hiddenPassword.utf8.count
+                    options.hidden_pim = hiddenPim
                     return vc_open(&options, error)
+                }
                 }
             }
         }
@@ -167,7 +178,7 @@ enum VcMobileBridge {
         path.withCString { vc_is_wrap($0) != 0 }
     }
 
-    static func generatePassword(length: Int32 = 24) -> String? {
+    static func generatePassword(length: Int32 = 64) -> String? {
         var buf = [CChar](repeating: 0, count: 80)
         let n = vc_generate_password(&buf, 80, length)
         defer {
@@ -235,6 +246,7 @@ enum VcMobileBridge {
         hiddenSizeBytes: UInt64 = 0,
         hiddenKeyfiles: [String] = []
     ) -> Int32 {
+        startCpu()
         path.withCString { cPath in
             password.withCString { cPassword in
                 cipher.withCString { cCipher in
@@ -342,7 +354,12 @@ enum VcMobileBridge {
         return String(cString: buf)
     }
 
+    static func protectionTriggered(_ handle: OpaquePointer) -> Bool {
+        vc_protection_triggered(handle) != 0
+    }
+
     static func benchmark() -> String {
+        startCpu()
         var buf = [CChar](repeating: 0, count: 2048)
         guard vc_benchmark(&buf, 2048) == 0 else { return "Benchmark failed." }
         return String(cString: buf)

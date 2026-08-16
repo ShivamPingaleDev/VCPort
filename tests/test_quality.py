@@ -186,6 +186,81 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("wipe free space", vol)
         self.assertIn("restore volume header", vol)
 
+    def test_lifecycle_host_harness_create_store_close_reopen(self) -> None:
+        life = read("ports/shared/test_lifecycle_main.cpp")
+        cmake = read("ports/shared/CMakeLists.txt")
+        runner = read("ports/tests/run-phases.sh")
+        self.assertIn("create AES(Twofish(Serpent))/HMAC-SHA-512", life)
+        self.assertIn("create biometric password", life)
+        self.assertIn("store VCF2 remember bundle", life)
+        self.assertIn("import NOTE.TXT", life)
+        self.assertIn("reopen with stored factors", life)
+        self.assertIn("payload still matches", life)
+        self.assertIn("close volume again", life)
+        self.assertIn("vc_lifecycle_test", cmake)
+        self.assertIn("run_lifecycle_test.sh", runner)
+        self.assertIn("std::thread", life)
+        self.assertIn("parallel CPU", life)
+        self.assertIn("VeraCrypt AES/Twofish/Serpent/HMAC test vectors", life)
+        self.assertIn("phone session", life)
+        self.assertIn("wrapFile encrypt", life)
+        self.assertIn("unwrapFile decrypt", life)
+        self.assertIn("createVolume", life)
+        self.assertIn("changeHeader", life)
+        self.assertIn("worker_count", life)
+
+    def test_emulator_device_simulation_stays_offline(self) -> None:
+        sim = read(
+            "ports/android/app/src/androidTest/java/dev/shivampingale/vcport/DeviceSimulationTest.kt"
+        )
+        ui = read(
+            "ports/android/app/src/androidTest/java/dev/shivampingale/vcport/MainActivityUiTest.kt"
+        )
+        gradle = read("ports/android/app/build.gradle")
+        script = read("ports/android/run_device_sim.sh")
+        self.assertIn("createStoreEncryptDecryptReopen", sim)
+        self.assertIn("hiddenVolumeWriteProtection", sim)
+        self.assertIn("NativeBridge.createVolume", sim)
+        self.assertIn("NativeBridge.wrapFile", sim)
+        self.assertIn("NativeBridge.unwrapFile", sim)
+        self.assertIn("NativeBridge.importFile", sim)
+        self.assertIn("NativeBridge.changeHeader", sim)
+        self.assertIn("protectHidden", sim)
+        self.assertIn("protectionTriggered", sim)
+        self.assertIn("readOnly", sim)
+        self.assertNotIn("UpdateChecker.check()", sim)
+        self.assertNotIn("UpdateChecker.check()", ui)
+        self.assertIn("NativeBridge.isOpen", sim)
+        self.assertIn("createAndroidComposeRule", ui)
+        self.assertIn("Panic wipe", ui)
+        self.assertIn("Stay offline. F-Droid: no network.", ui)
+        self.assertIn("Encrypt file", ui)
+        self.assertIn("tab_create", ui)
+        self.assertIn("Check for updates", ui)
+        self.assertIn("Working…", ui)
+        self.assertIn("ui-test-junit4", gradle)
+        self.assertIn("ui-test-manifest", gradle)
+        self.assertIn("animationsDisabled true", gradle)
+        self.assertIn("AndroidJUnitRunner", gradle)
+        self.assertIn("ENABLE_UPDATE_CHECK", gradle)
+        self.assertIn("vcport-api35", script)
+        self.assertIn("connectedFdroidDebugAndroidTest", script)
+        cmake = read("ports/shared/CMakeLists.txt")
+        self.assertIn("-fgnu89-inline", cmake)
+        self.assertIn("armv8-a+crypto", cmake)
+        jni = read("ports/shared/android_jni.cpp")
+        self.assertIn("jni_live_handle", jni)
+        self.assertIn("vc_runtime_start", jni)
+        self.assertIn("startRuntime", jni)
+        native = read(
+            "ports/android/app/src/main/java/dev/shivampingale/vcport/NativeBridge.kt"
+        )
+        self.assertIn("fun isOpen", native)
+        header = read("ports/shared/vc_mobile.h")
+        self.assertIn("vc_runtime_start", header)
+        life = read("ports/shared/test_lifecycle_main.cpp")
+        self.assertIn("vc_runtime_start", life)
+
     def test_user_never_sees_install_from_the_app(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         view = read("ports/ios/VCPort/ContentView.swift")
@@ -266,17 +341,26 @@ class FunctionalTests(unittest.TestCase):
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("fun WorkOverlay", theme)
         self.assertIn("struct WorkOverlay", view)
+        self.assertIn("Nothing runs out of sight.", theme)
+        self.assertIn("Nothing runs out of sight.", view)
+        self.assertIn("On this phone", theme)
+        self.assertIn("On this phone", view)
+        self.assertNotIn("Working…", theme)
+        self.assertNotIn("Working…", view)
 
     def test_nested_volume_has_no_open_time_checkbox(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("no open-time hidden checkbox", main.lower())
         self.assertNotIn("isHiddenVolume", main)
+        self.assertIn("Protect hidden volume against damage", main)
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn("Protect hidden volume against damage", view)
 
 
 class SmokeSanityTests(unittest.TestCase):
     def test_version_json_parses(self) -> None:
         v = json.loads(read("ports/version.json"))
-        self.assertEqual(v["port_version"], "0.3.0")
+        self.assertEqual(v["port_version"], "0.3.1")
         self.assertEqual(len(v["upstream_commit"]), 40)
 
     def test_pin_file_matches_json(self) -> None:

@@ -12,11 +12,11 @@ python3 ports/tests/test_quality.py
 | Kind | Question it answers | What actually runs |
 | --- | --- | --- |
 | **Unit** | Does one function do the right thing? | `test_factors.py` (VCF2), `test_wipe.py`, tag/version tables in `test_quality.py`, password generator in `test_wrap_main.cpp` |
-| **Module** | Does one C/Kotlin/Swift unit keep its contract? | `run_wrap_test.sh`, `run_volume_test.sh`, SourcePin / UpdateChecker |
+| **Module** | Does one C/Kotlin/Swift unit keep its contract? | `run_wrap_test.sh`, `run_volume_test.sh`, `run_lifecycle_test.sh`, SourcePin / UpdateChecker |
 | **White-box** | Do we look at the code paths? | Wrap wrong password / tamper MAC, F-Droid `check()` throws |
-| **Black-box** | Does it behave from the outside? | Wrap in → unwrap out; create → open → list → export |
+| **Black-box** | Does it behave from the outside? | Wrap in → unwrap out; create → open → list → export; create → store → close → reopen |
 | **Integration** | Do two layers talk? | JNI/C API; Kotlin/Swift VCF2; version.json → PortVersion.h / Info.plist |
-| **Functional** | Can a user finish a job? | Copy, wipe, panic, keyfiles, progress overlay — no open-time hidden checkbox |
+| **Functional** | Can a user finish a job? | Copy, wipe, panic, keyfiles, progress overlay — no open-time hidden checkbox. Lifecycle: password + PIM + biometric keyfile, Remember VCF2, files survive dismount, hidden-volume write protection |
 | **System** | Whole tree on a laptop | `run-phases.sh` |
 | **Smoke** | Does the pin parse? | `check_veracrypt_release.py --pin-only` |
 | **Regression** | Frozen pin / FOSS rule | Honesty freeze; app is still VC Port |
@@ -57,3 +57,26 @@ to “make tests pass.” Those fail the threat model.
 Wrap and volume tests are both white-box (return codes) and black-box (files on
 disk). Wrong password must not yield plaintext; a flipped byte in `.vcpw` is
 rejected.
+
+The lifecycle harness runs independent volumes on a CPU worker pool sized to
+half of `hardware_concurrency()`, so VeraCrypt's EncryptionThreadPool still has
+cores for XTS import/export. HMAC-SHA-512 PBKDF2 is sequential per password, so
+a GPU cannot shorten one unlock and would put key material in VRAM. The KDF
+itself is unchanged.
+
+A "phone session" in the same binary walks every NativeBridge call: entropy,
+create, wrap/unwrap, open, store, dismount, reopen, header backup/restore,
+change password, read-only, backup header, hidden-volume write protection.
+Android emulator / device: `ports/android/run_device_sim.sh` (starts AVD
+`vcport-api35` when adb is empty; skips if there is no SDK/AVD). That test
+never calls `UpdateChecker.check()`. Compose UI coverage is `MainActivityUiTest`
+(tabs, Panic wipe, Stay offline, Wrap/Create/Tools copy; does not tap Panic
+wipe or Check for updates).
+
+ARM64 slices compile Aes_hw_armv8 / sha256_armv8 with `-march=armv8-a+crypto`.
+Debug NDK builds still use `-O2` on that slice so AES/SHA detection and
+Twofish/Serpent/SHA-512 are not stuck at `-O0`. armeabi-v7a uses NEON.
+`vc_runtime_start()` warms VeraCrypt's EncryptionThreadPool at JNI load (and
+on iOS before open/create) so XTS uses every core. HMAC-SHA-512 PBKDF2 stays
+sequential per password.
+

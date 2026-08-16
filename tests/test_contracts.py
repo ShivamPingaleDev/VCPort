@@ -558,6 +558,9 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("Share encrypted", main)
         self.assertIn("Stay offline", main)
         self.assertIn("compelled", main.lower())
+        self.assertIn("Copy once", main)
+        self.assertIn("generatePassword(64)", main)
+        self.assertIn("64-character password", main)
 
     def test_wrap_panic_share_stay_offline_on_ios(self) -> None:
         view = read("ports/ios/VCPort/ContentView.swift")
@@ -567,6 +570,10 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("Share encrypted file", view)
         self.assertIn("Stay offline", view)
         self.assertIn("compelled", view.lower())
+        self.assertIn("Copy once", view)
+        self.assertIn("64-character password", view)
+        self.assertIn("generatePassword(length: Int32 = 64)", read("ports/ios/VCPort/VcMobileBridge.swift"))
+        self.assertIn("VC_ENTROPY_NEED = 8192", read("ports/shared/vc_mobile.cpp"))
 
     def test_volume_tools_on_android_and_ios(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
@@ -620,6 +627,7 @@ class CrossPortGuiParityTests(unittest.TestCase):
             self.assertIn("Restore from embedded backup header", blob)
             self.assertIn("TrueCrypt Mode", blob)
             self.assertIn("Read-only", blob)
+            self.assertIn("Protect hidden volume against damage", blob)
             self.assertIn("Desktop leftovers", blob)
             self.assertIn("volume expander", blob.lower())
             self.assertIn("traveler disk", blob.lower())
@@ -631,6 +639,8 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("vc_rename", header)
         self.assertIn("vc_wipe_free_space", header)
         self.assertIn("read_only", header)
+        self.assertIn("protect_hidden", header)
+        self.assertIn("vc_protection_triggered", header)
 
     def test_work_is_visual_on_android_and_ios(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
@@ -675,12 +685,16 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("opt_avx2.c", cmake)
         self.assertIn("opt_sse2.c", cmake)
         self.assertIn("Aes_hw_armv8.c", cmake)
+        self.assertIn("-march=armv8-a+crypto", cmake)
         lists = read("ports/shared/CMakeLists.txt")
         self.assertIn("CRYPTOPP_DISABLE_AESNI", lists)
         self.assertIn("CRYPTOPP_DISABLE_SHANI", lists)
         self.assertIn("TC_IOS", lists)
         self.assertIn('CMAKE_SYSTEM_NAME STREQUAL "iOS"', lists)
         self.assertIn("vc_progress.cpp", lists)
+        self.assertIn("armv8-a+crypto", lists)
+        self.assertIn("mfpu=neon", lists)
+        self.assertIn("-ftree-vectorize", lists)
         wrap = read("ports/shared/run_wrap_test.sh")
         self.assertIn("vc_progress.cpp", wrap)
         self.assertIn("arm64|aarch64", wrap)

@@ -4,7 +4,9 @@ object NativeBridge {
     const val LIST_UI_MAX = 1024
     init {
         System.loadLibrary("vcport")
+        startRuntime()
     }
+    private external fun startRuntime()
 
     external fun openVolume(
         path: String,
@@ -12,7 +14,10 @@ object NativeBridge {
         pim: Int,
         backup: Boolean,
         keyfiles: Array<String>,
-        readOnly: Boolean
+        readOnly: Boolean,
+        protectHidden: Boolean = false,
+        hiddenPassword: String = "",
+        hiddenPim: Int = 0
     ): Long
     external fun closeVolume(handle: Long)
     external fun volumeSize(handle: Long): Long
@@ -73,12 +78,16 @@ object NativeBridge {
     ): Int
     external fun generateKeyfile(path: String, size: Int): Int
     external fun volumeInfo(handle: Long): String?
+    external fun protectionTriggered(handle: Long): Boolean
     external fun benchmark(): String?
     external fun testVectors(): Int
     external fun resetProgress()
     external fun setProgress(percent: Int, phase: String)
     external fun progressPercent(): Int
     external fun progressPhase(): String
+
+    /** Live volume pointer. Error codes from openVolume are 0 and -1..-6. */
+    fun isOpen(handle: Long): Boolean = handle < -6L || handle > 0L
 
     val CIPHERS = listOf(
         "AES",

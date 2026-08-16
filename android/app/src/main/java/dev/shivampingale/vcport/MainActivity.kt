@@ -61,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +89,6 @@ class MainActivity : AppCompatActivity() {
     private val incomingState = mutableStateOf<File?>(null)
     private val passwordState = mutableStateOf("")
     private val wrapPasswordState = mutableStateOf("")
-    private val generatedPasswordState = mutableStateOf("")
     private val handleState = mutableStateOf(0L)
     private val entriesState = mutableStateOf(listOf<VaultEntry>())
     private val dirPathState = mutableStateOf("")
@@ -123,7 +123,6 @@ class MainActivity : AppCompatActivity() {
                 var dirPath by dirPathState
                 var listTruncated by listTruncatedState
                 var wrapPassword by wrapPasswordState
-                var generatedPassword by generatedPasswordState
                 var busy by busyState
                 var tab by tabState
                 var moreFactors by remember { mutableStateOf(false) }
@@ -144,6 +143,9 @@ class MainActivity : AppCompatActivity() {
                 var useBackupHeader by remember { mutableStateOf(false) }
                 var readOnlyOpen by remember { mutableStateOf(false) }
                 var trueCryptMode by remember { mutableStateOf(false) }
+                var protectHidden by remember { mutableStateOf(false) }
+                var hiddenProtectPassword by remember { mutableStateOf("") }
+                var hiddenProtectPim by remember { mutableStateOf("0") }
                 var namePrompt by remember { mutableStateOf<String?>(null) }
                 var namePromptValue by remember { mutableStateOf("") }
                 var pendingExportFile by remember { mutableStateOf<File?>(null) }
@@ -175,11 +177,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 LaunchedEffect(tab) {
-                    if (tab == 3) {
+                    if (tab == 2) {
                         NativeBridge.resetEntropy()
                         entropyPercent = 0
                     }
-                    if (tab == 4) {
+                    if (tab == 3) {
                         newPim = pim
                     }
                 }
@@ -323,7 +325,6 @@ class MainActivity : AppCompatActivity() {
                     panicWipe()
                     password = ""
                     wrapPassword = ""
-                    generatedPassword = ""
                     handle = 0
                     entries = emptyList()
                     dirPath = ""
@@ -343,8 +344,8 @@ class MainActivity : AppCompatActivity() {
                                     Column {
                                         Text("VC Port", style = MaterialTheme.typography.titleLarge)
                                         Text(
-                                            if (handle > 0)
-                                                if (dirPath.isEmpty()) "/" else "/$dirPath"
+                                            if (NativeBridge.isOpen(handle))
+                                                "Mounted in this app"
                                             else if (BuildConfig.ENABLE_UPDATE_CHECK)
                                                 "Stay offline until you check for updates."
                                             else
@@ -358,12 +359,12 @@ class MainActivity : AppCompatActivity() {
                                 }
                             },
                             actions = {
-                                if (handle > 0) {
+                                if (NativeBridge.isOpen(handle)) {
                                     TextButton(
                                         onClick = { lockSession() },
                                         enabled = !busy,
                                         colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
-                                    ) { Text("Lock") }
+                                    ) { Text("Dismount") }
                                 }
                                 TextButton(
                                     onClick = { runPanic() },
@@ -469,7 +470,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                         }
-                        if (handle > 0) {
+                        if (NativeBridge.isOpen(handle)) {
                             VaultPane(
                                 dirPath = dirPath,
                                 entries = entries,
@@ -567,16 +568,15 @@ class MainActivity : AppCompatActivity() {
                             )
                         } else {
                             ScrollableTabRow(
-                                selectedTabIndex = tab.coerceIn(0, 4),
+                                selectedTabIndex = tab.coerceIn(0, 3),
                                 containerColor = colors.background,
                                 contentColor = colors.primary,
                                 edgePadding = 8.dp
                             ) {
-                                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Volume") })
-                                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Wrap") })
-                                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Share") })
-                                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Create") })
-                                Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("Tools") })
+                                Tab(selected = tab == 0, onClick = { tab = 0 }, modifier = Modifier.testTag("tab_volume"), text = { Text("Volume") })
+                                Tab(selected = tab == 1, onClick = { tab = 1 }, modifier = Modifier.testTag("tab_wrap"), text = { Text("Wrap") })
+                                Tab(selected = tab == 2, onClick = { tab = 2 }, modifier = Modifier.testTag("tab_create"), text = { Text("Create") })
+                                Tab(selected = tab == 3, onClick = { tab = 3 }, modifier = Modifier.testTag("tab_tools"), text = { Text("Tools") })
                             }
                             Column(
                                 Modifier
@@ -601,11 +601,10 @@ class MainActivity : AppCompatActivity() {
                                             )
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val generated = NativeBridge.generatePassword(24)
+                                                    val generated = NativeBridge.generatePassword(64)
                                                     if (generated != null) {
                                                         wrapPassword = generated
-                                                        generatedPassword = generated
-                                                        status = "Generated a 24-character password in memory. It is not saved."
+                                                        status = "Generated a 64-character password in memory. Copy once if you need it elsewhere. It is not saved."
                                                     } else {
                                                         status = "Password generator failed."
                                                     }
@@ -627,7 +626,6 @@ class MainActivity : AppCompatActivity() {
                                                     onClick = {
                                                         SensitiveClipboard.forget(this@MainActivity)
                                                         wrapPassword = ""
-                                                        generatedPassword = ""
                                                         status = "Password forgotten. Clipboard cleared."
                                                     },
                                                     modifier = Modifier.weight(1f)
@@ -646,32 +644,6 @@ class MainActivity : AppCompatActivity() {
                                         }
                                     }
                                     2 -> {
-                                        VcCard {
-                                            Text("Share encrypted file", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Sends the encrypted file as-is, including disguised names (.jpg, .png, .safetensors). No password, no decrypt. WhatsApp, Gmail, Drive, and the rest of the share sheet.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Button(
-                                                onClick = { shareEncPicker.launch(arrayOf("*/*")) },
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Icon(Icons.Filled.Share, contentDescription = null)
-                                                Spacer(Modifier.padding(6.dp))
-                                                Text("Share encrypted file")
-                                            }
-                                            if (containerUri != null || path.isNotEmpty()) {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        shareEncryptedVolume(containerUri, path) { status = it }
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) { Text("Share this encrypted file") }
-                                            }
-                                        }
-                                    }
-                                    3 -> {
                                         VcCard {
                                             Text("Encryption Options", style = MaterialTheme.typography.titleMedium)
                                             Text(
@@ -744,15 +716,34 @@ class MainActivity : AppCompatActivity() {
                                             )
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val generated = NativeBridge.generatePassword(24)
+                                                    val generated = NativeBridge.generatePassword(64)
                                                     if (generated != null) {
                                                         createPassword = generated
-                                                        status = "Generated a 24-character password in memory. It is not saved."
+                                                        status = "Generated a 64-character password in memory. Copy once if you need it elsewhere. It is not saved."
                                                     }
                                                 },
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Generate strong password") }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        if (createPassword.isNotEmpty()) {
+                                                            SensitiveClipboard.copyOnce(this@MainActivity, createPassword)
+                                                            status = "Copied once. Clipboard clears in 30 seconds. No history is kept."
+                                                        }
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                ) { Text("Copy once") }
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        SensitiveClipboard.forget(this@MainActivity)
+                                                        createPassword = ""
+                                                        status = "Password forgotten. Clipboard cleared."
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                ) { Text("Forget password") }
+                                            }
                                             Text("Keyfiles", style = MaterialTheme.typography.titleSmall)
                                             keyfileUris.forEach { uri ->
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -895,7 +886,7 @@ class MainActivity : AppCompatActivity() {
                                             ) { Text("Create volume") }
                                         }
                                     }
-                                    4 -> {
+                                    3 -> {
                                         VcCard {
                                             Text("Volume header", style = MaterialTheme.typography.titleMedium)
                                             Text(
@@ -1080,7 +1071,7 @@ class MainActivity : AppCompatActivity() {
                                             ) { Text("Restore from embedded backup header") }
                                             OutlinedButton(
                                                 onClick = {
-                                                    if (handle <= 0) {
+                                                    if (!NativeBridge.isOpen(handle)) {
                                                         status = "Open the volume first for Volume properties."
                                                     } else {
                                                         status = NativeBridge.volumeInfo(handle)
@@ -1101,7 +1092,7 @@ class MainActivity : AppCompatActivity() {
                                             Button(
                                                 onClick = {
                                                     val dest = File(cacheDir, "random.key")
-                                                    beginWork()
+                                                    beginWork("Generating keyfile…")
                                                     Thread {
                                                         val rc = NativeBridge.generateKeyfile(dest.absolutePath, 128)
                                                         runOnUiThread {
@@ -1124,8 +1115,7 @@ class MainActivity : AppCompatActivity() {
                                             Text("Benchmark / test vectors", style = MaterialTheme.typography.titleMedium)
                                             OutlinedButton(
                                                 onClick = {
-                                                    beginWork()
-                                                    status = "Running encryption benchmark…"
+                                                    beginWork("Running encryption benchmark…")
                                                     Thread {
                                                         val result = NativeBridge.benchmark() ?: "Benchmark failed."
                                                         runOnUiThread {
@@ -1139,8 +1129,7 @@ class MainActivity : AppCompatActivity() {
                                             ) { Text("Benchmark") }
                                             OutlinedButton(
                                                 onClick = {
-                                                    beginWork()
-                                                    status = "Running known-answer test vectors…"
+                                                    beginWork("Running known-answer test vectors…")
                                                     Thread {
                                                         val rc = NativeBridge.testVectors()
                                                         runOnUiThread {
@@ -1168,7 +1157,6 @@ class MainActivity : AppCompatActivity() {
                                                     lockSession()
                                                     password = ""
                                                     wrapPassword = ""
-                                                    generatedPassword = ""
                                                     handle = 0
                                                     entries = emptyList()
                                                     status = "Wipe cached passwords complete. Volume closed."
@@ -1196,7 +1184,7 @@ class MainActivity : AppCompatActivity() {
                                         VcCard {
                                             Text("Desktop leftovers", style = MaterialTheme.typography.titleMedium)
                                             Text(
-                                                "This is the full file-container port. These desktop items stay on a computer: mount as a drive letter (no FUSE here), Select Device / Auto-Mount All Devices, system encryption, rescue disk, traveler disk, volume expander, in-place partition encrypt/decrypt, hotkeys, language files, NTFS/exFAT/ext filesystems, hidden-volume write protection while the outer is open, PKCS#11 tokens, and a DocumentsProvider / Files.app browse of an unlocked volume (that was a seizure leak). Online help is not fetched while Stay offline. English UI only.",
+                                                "This is the full file-container port. These desktop items stay on a computer: mount as a drive letter (no FUSE here), Select Device / Auto-Mount All Devices, system encryption, rescue disk, traveler disk, volume expander, Quick Format, dynamic sparse containers, favorite volumes, driver password cache, VeraCrypt background task, in-place partition encrypt/decrypt, hotkeys, language files, NTFS/exFAT/ext filesystems, PKCS#11 tokens, and a DocumentsProvider / Files.app browse of an unlocked volume (that was a seizure leak). Online help is not fetched while Stay offline. English UI only.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = colors.onSurfaceVariant
                                             )
@@ -1249,11 +1237,6 @@ class MainActivity : AppCompatActivity() {
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Choose container") }
-                                            OutlinedButton(
-                                                onClick = { picker.launch(arrayOf("*/*")) },
-                                                enabled = !busy,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) { Text("USB/OTG container") }
                                             Text(
                                                 "USB/OTG: pick any file on the stick through Android's file picker — .hc, .jpg, .png, .safetensors, or no extension. This app cannot mount a raw USB disk or auto-mount /dev block devices without root.",
                                                 style = MaterialTheme.typography.bodySmall,
@@ -1267,6 +1250,30 @@ class MainActivity : AppCompatActivity() {
                                                 enabled = !busy,
                                                 singleLine = true
                                             )
+                                        }
+                                        VcCard {
+                                            Text("Share encrypted file", style = MaterialTheme.typography.titleMedium)
+                                            Text(
+                                                "Sends the encrypted file as-is, including disguised names (.jpg, .png, .safetensors). No password, no decrypt. WhatsApp, Gmail, Drive, and the rest of the share sheet.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colors.onSurfaceVariant
+                                            )
+                                            Button(
+                                                onClick = { shareEncPicker.launch(arrayOf("*/*")) },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(Icons.Filled.Share, contentDescription = null)
+                                                Spacer(Modifier.padding(6.dp))
+                                                Text("Share encrypted file")
+                                            }
+                                            if (containerUri != null || path.isNotEmpty()) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        shareEncryptedVolume(containerUri, path) { status = it }
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) { Text("Share this encrypted file") }
+                                            }
                                         }
                                         VcCard {
                                             Text("Unlock factors", style = MaterialTheme.typography.titleMedium)
@@ -1302,6 +1309,9 @@ class MainActivity : AppCompatActivity() {
                                                         useBackupHeader = useBackupHeader,
                                                         readOnly = readOnlyOpen,
                                                         trueCryptMode = trueCryptMode,
+                                                        protectHidden = protectHidden,
+                                                        hiddenPassword = hiddenProtectPassword,
+                                                        hiddenPimText = hiddenProtectPim,
                                                         currentHandle = handle,
                                                         onHandle = { handle = it },
                                                         onEntries = { entries = it },
@@ -1338,6 +1348,32 @@ class MainActivity : AppCompatActivity() {
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = colors.onSurfaceVariant
                                             )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Checkbox(protectHidden, { protectHidden = it }, enabled = !busy)
+                                                Text("Protect hidden volume against damage caused by writing to outer volume")
+                                            }
+                                            Text(
+                                                "Same as desktop Mount Options. Enter the nested volume password. Writes that would overwrite the nested volume are refused. Do not enable this if someone is compelling you to open the outer volume — that would show that a nested volume exists. There is no open-time hidden checkbox; opening still uses whichever password you type.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colors.onSurfaceVariant
+                                            )
+                                            if (protectHidden) {
+                                                SecretField(
+                                                    hiddenProtectPassword,
+                                                    { hiddenProtectPassword = it },
+                                                    "Password to hidden volume",
+                                                    enabled = !busy
+                                                )
+                                                OutlinedTextField(
+                                                    hiddenProtectPim,
+                                                    { hiddenProtectPim = it },
+                                                    label = { Text("Hidden volume PIM (0 = default)") },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    enabled = !busy,
+                                                    singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                                )
+                                            }
                                             TextButton(onClick = { moreFactors = !moreFactors }) {
                                                 Text(if (moreFactors) "Hide extra factors" else "More factors (PIM, keyfiles, biometrics)")
                                             }
@@ -1638,13 +1674,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun lockSession() {
         val handle = handleState.value
-        if (handle > 0) NativeBridge.closeVolume(handle)
+        if (NativeBridge.isOpen(handle)) NativeBridge.closeVolume(handle)
         handleState.value = 0L
         entriesState.value = emptyList()
         dirPathState.value = ""
         passwordState.value = ""
         wrapPasswordState.value = ""
-        generatedPasswordState.value = ""
         lastPlainFilesState.value = emptyList()
         endWork()
         Hardening.wipeSessionFiles(this)
@@ -1657,13 +1692,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun panicWipe() {
         val handle = handleState.value
-        if (handle > 0) NativeBridge.closeVolume(handle)
+        if (NativeBridge.isOpen(handle)) NativeBridge.closeVolume(handle)
         handleState.value = 0L
         Hardening.panic(this)
     }
 
-    private fun beginWork() {
+    private fun beginWork(title: String = "") {
         NativeBridge.resetProgress()
+        if (title.isNotEmpty()) statusState.value = title
         busyState.value = true
     }
 
@@ -1773,8 +1809,7 @@ class MainActivity : AppCompatActivity() {
             }
             hiddenBytes = hiddenMb * 1024L * 1024L
         }
-        beginWork()
-        onStatus("Creating $mb MiB $cipher / $kdf volume…")
+        beginWork("Creating $mb MiB $cipher / $kdf volume…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -1927,8 +1962,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Removing all keyfiles needs a text password, or the volume cannot be opened.")
             return
         }
-        beginWork()
-        onStatus("Rewriting volume header…")
+        beginWork("Rewriting volume header…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -1941,7 +1975,7 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
                 temps.addAll(copied)
-                if (currentHandle > 0) NativeBridge.closeVolume(currentHandle)
+                if (NativeBridge.isOpen(currentHandle)) NativeBridge.closeVolume(currentHandle)
                 val newKeys = if (keepKeyfiles) temps.map { it.absolutePath }.toTypedArray() else emptyArray()
                 val rc = NativeBridge.changeHeader(
                     path,
@@ -1991,8 +2025,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val text = if (useTextPassword) password else ""
-        beginWork()
-        onStatus("Backing up volume header…")
+        beginWork("Backing up volume header…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -2005,7 +2038,7 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
                 temps.addAll(copied)
-                if (currentHandle > 0) NativeBridge.closeVolume(currentHandle)
+                if (NativeBridge.isOpen(currentHandle)) NativeBridge.closeVolume(currentHandle)
                 val dest = File(cacheDir, "volume-header.bak")
                 val rc = NativeBridge.backupHeaders(
                     volumePath,
@@ -2055,8 +2088,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val text = if (useTextPassword) password else ""
-        beginWork()
-        onStatus("Restoring volume header…")
+        beginWork("Restoring volume header…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -2079,7 +2111,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     return@Thread
                 }
-                if (currentHandle > 0) NativeBridge.closeVolume(currentHandle)
+                if (NativeBridge.isOpen(currentHandle)) NativeBridge.closeVolume(currentHandle)
                 val rc = NativeBridge.restoreHeaders(
                     volumePath,
                     backup.absolutePath,
@@ -2111,8 +2143,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun copyContainerAsync(uri: Uri, onDone: (String) -> Unit) {
-        beginWork()
-        statusState.value = "Copying container into app cache…"
+        beginWork("Copying container into app cache…")
         Thread {
             val copied = try {
                 copyToCache(uri)
@@ -2139,6 +2170,9 @@ class MainActivity : AppCompatActivity() {
         useBackupHeader: Boolean,
         readOnly: Boolean,
         trueCryptMode: Boolean,
+        protectHidden: Boolean,
+        hiddenPassword: String,
+        hiddenPimText: String,
         currentHandle: Long,
         onHandle: (Long) -> Unit,
         onEntries: (List<VaultEntry>) -> Unit,
@@ -2157,8 +2191,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Create or import a biometric password, or tap Unlock with biometrics to load a saved one.")
             return
         }
-        beginWork()
-        onStatus("Opening…")
+        beginWork("Opening volume…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -2176,16 +2209,19 @@ class MainActivity : AppCompatActivity() {
                     }
                     temps.add(copied)
                 }
-                if (currentHandle > 0) NativeBridge.closeVolume(currentHandle)
+                if (NativeBridge.isOpen(currentHandle)) NativeBridge.closeVolume(currentHandle)
                 val result = NativeBridge.openVolume(
                     path,
                     text,
                     if (trueCryptMode) 0 else (pimText.toIntOrNull() ?: 0),
                     useBackupHeader,
                     temps.map { it.absolutePath }.toTypedArray(),
-                    readOnly
+                    readOnly,
+                    protectHidden,
+                    if (protectHidden) hiddenPassword else "",
+                    if (protectHidden) (hiddenPimText.toIntOrNull() ?: 0) else 0
                 )
-                if (result <= 0) {
+                if (!NativeBridge.isOpen(result)) {
                     runOnUiThread {
                         endWork()
                         onHandle(0)
@@ -2213,7 +2249,8 @@ class MainActivity : AppCompatActivity() {
                         onEntries(files)
                         dirPathState.value = ""
                         listTruncatedState.value = truncated
-                        var msg = "Opened. Size $volumeBytes bytes. Tap a folder to open it, or a file to share the decrypted copy."
+                        var msg = "Mounted in this app. Size $volumeBytes bytes. Tap a folder to open it, or a file to share the decrypted copy."
+                        if (protectHidden) msg = "Hidden volume is being protected against damage. $msg"
                         if (truncated) msg += " Listing truncated at ${NativeBridge.LIST_UI_MAX} entries. Tap Load more."
                         onStatus(msg)
                         if (rememberBio && vault.isAvailable()) {
@@ -2284,8 +2321,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Enter the wrap password first. It is not stored.")
             return
         }
-        beginWork()
-        onStatus("Unwrapping file…")
+        beginWork("Unwrapping file…")
         Thread {
             val destDir = File(cacheDir, "unwrapped").apply { mkdirs() }
             val outPath = NativeBridge.unwrapFile(file.absolutePath, destDir.absolutePath, password)
@@ -2309,8 +2345,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Use Generate strong password, or type at least 16 characters. Nothing is saved.")
             return
         }
-        beginWork()
-        onStatus("Wrapping file…")
+        beginWork("Wrapping file…")
         Thread {
             val name = ShareHelper.displayName(this, uri) ?: "file.bin"
             val plain = File(cacheDir, "wrap-in-${ShareHelper.safeName(name)}")
@@ -2354,8 +2389,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Enter the wrap password first. It is not stored.")
             return
         }
-        beginWork()
-        onStatus("Unwrapping file…")
+        beginWork("Unwrapping file…")
         Thread {
             val name = ShareHelper.displayName(this, uri) ?: "wrap.vcpw"
             val wrapped = File(cacheDir, ShareHelper.safeName(name))
@@ -2432,7 +2466,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         val livePlain = lastPlain.filter { it.exists() }
         when {
-            handle > 0 && selected.isNotEmpty() -> shareVaultFiles(handle, dirPath, selected, onStatus)
+            NativeBridge.isOpen(handle) && selected.isNotEmpty() -> shareVaultFiles(handle, dirPath, selected, onStatus)
             livePlain.isNotEmpty() -> {
                 beginShare()
                 onStatus("Sharing decrypted ${livePlain.joinToString { it.name }}.")
@@ -2451,7 +2485,7 @@ class MainActivity : AppCompatActivity() {
         onStatus: (String) -> Unit
     ) {
         val toShare = files.filter { !it.isDir }
-        if (handle <= 0) {
+        if (!NativeBridge.isOpen(handle)) {
             onStatus("Open a volume first.")
             return
         }
@@ -2460,8 +2494,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         beginShare()
-        beginWork()
-        onStatus("Preparing ${toShare.size} decrypted file(s)…")
+        beginWork("Preparing ${toShare.size} decrypted file(s)…")
         Thread {
             val dests = mutableListOf<File>()
             for (entry in toShare) {
@@ -2504,34 +2537,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun shareVaultFile(handle: Long, dirPath: String, entry: VaultEntry, onStatus: (String) -> Unit) {
-        if (handle <= 0) {
-            onStatus("Open a volume first.")
-            return
-        }
-        beginShare()
-        if (entry.isDir) {
-            onStatus("Open the folder, then share a file inside it.")
-            return
-        }
-        val volumePath = joinDir(dirPath, entry.name)
-        beginWork()
-        onStatus("Preparing ${entry.name}…")
-        Thread {
-            val dest = File(ShareHelper.shareDir(this), ShareHelper.safeName(entry.name))
-            val rc = NativeBridge.exportFile(handle, volumePath, dest.absolutePath)
-            runOnUiThread {
-                endWork()
-                if (rc != 0 || !dest.exists()) {
-                    onStatus(extractErrorMessage(entry.name, rc))
-                } else {
-                    onStatus("Share ${entry.name} with WhatsApp, Gmail, Drive, or any app.")
-                    ShareHelper.shareFiles(this, listOf(dest), "Share ${entry.name}")
-                }
-            }
-        }.start()
-    }
-
     private fun loadDir(
         handle: Long,
         path: String,
@@ -2539,8 +2544,8 @@ class MainActivity : AppCompatActivity() {
         onStatus: (String) -> Unit,
         append: Boolean = false
     ) {
-        if (handle <= 0) return
-        beginWork()
+        if (!NativeBridge.isOpen(handle)) return
+        beginWork(if (append) "Loading more…" else "Reading folder…")
         Thread {
             try {
                 val offset = if (append) entriesState.value.size else 0
@@ -2609,7 +2614,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun importErrorMessage(name: String, rc: Int): String {
+    private fun importErrorMessage(name: String, rc: Int, handle: Long = 0L): String {
+        if (NativeBridge.isOpen(handle) && NativeBridge.protectionTriggered(handle)) {
+            return "Hidden volume protection triggered. The outer volume is now write-protected until you dismount."
+        }
         return when (rc) {
             -6 -> "Could not copy $name. FAT only; folders are not created this way."
             -4 -> "Could not copy $name. Bad name or path."
@@ -2636,12 +2644,11 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        if (handle <= 0) {
+        if (!NativeBridge.isOpen(handle)) {
             onStatus("Open a volume first.")
             return
         }
-        beginWork()
-        onStatus(if (move) "Moving from device…" else "Copying from device…")
+        beginWork(if (move) "Moving from device…" else "Copying from device…")
         Thread {
             var cache: File? = null
             try {
@@ -2676,7 +2683,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     endWork()
                     when {
-                        rc != 0 -> onStatus(importErrorMessage(name, rc))
+                        rc != 0 -> onStatus(importErrorMessage(name, rc, handle))
                         move && !deletedOriginal -> {
                             onStatus("Copied $name into the volume. Could not delete the original; remove it in Files if you meant a move.")
                             loadDir(handle, dirPath, onEntries, onStatus)
@@ -2711,7 +2718,7 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        if (handle <= 0) {
+        if (!NativeBridge.isOpen(handle)) {
             onStatus("Open a volume first.")
             return
         }
@@ -2719,8 +2726,7 @@ class MainActivity : AppCompatActivity() {
             onStatus("Open the folder, then copy a file inside it.")
             return
         }
-        beginWork()
-        onStatus(if (move) "Moving ${entry.name} to device…" else "Copying ${entry.name} to device…")
+        beginWork(if (move) "Moving ${entry.name} to device…" else "Copying ${entry.name} to device…")
         Thread {
             val dest = File(cacheDir, "to-device-${System.nanoTime()}-${ShareHelper.safeName(entry.name)}")
             try {
@@ -2794,11 +2800,11 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        if (handle <= 0) {
+        if (!NativeBridge.isOpen(handle)) {
             onStatus("Open a volume first.")
             return
         }
-        beginWork()
+        beginWork("Creating folder $name…")
         Thread {
             val rc = NativeBridge.mkdir(handle, if (dirPath.isEmpty()) "/" else dirPath, name)
             runOnUiThread {
@@ -2820,7 +2826,7 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        beginWork()
+        beginWork("Renaming ${entry.name}…")
         Thread {
             val rc = NativeBridge.renameFile(handle, joinDir(dirPath, entry.name), newName)
             runOnUiThread {
@@ -2841,7 +2847,7 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        beginWork()
+        beginWork(if (entry.isDir) "Deleting folder ${entry.name}…" else "Deleting ${entry.name}…")
         Thread {
             val path = joinDir(dirPath, entry.name)
             val rc = if (entry.isDir) NativeBridge.rmdir(handle, path) else NativeBridge.deleteFile(handle, path)
@@ -2866,12 +2872,11 @@ class MainActivity : AppCompatActivity() {
         onEntries: (List<VaultEntry>) -> Unit,
         onStatus: (String) -> Unit
     ) {
-        if (handle <= 0) {
+        if (!NativeBridge.isOpen(handle)) {
             onStatus("Open a volume first.")
             return
         }
-        beginWork()
-        onStatus("Wiping free space…")
+        beginWork("Wiping free space…")
         Thread {
             val rc = NativeBridge.wipeFreeSpace(handle)
             runOnUiThread {
@@ -2903,8 +2908,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val text = if (useTextPassword) password else ""
-        beginWork()
-        onStatus("Restoring from the embedded backup header…")
+        beginWork("Restoring from the embedded backup header…")
         Thread {
             val temps = mutableListOf<File>()
             try {
@@ -2917,7 +2921,7 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
                 temps.addAll(copied)
-                if (currentHandle > 0) NativeBridge.closeVolume(currentHandle)
+                if (NativeBridge.isOpen(currentHandle)) NativeBridge.closeVolume(currentHandle)
                 val rc = NativeBridge.restoreHeaders(
                     volumePath,
                     "",
@@ -3022,6 +3026,11 @@ private fun VaultPane(
 ) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
+        Text(
+            "Mounted in this app — folders and files. Not a system drive.",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
