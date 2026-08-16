@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from repo_paths import ROOT, read, resolve  # noqa: E402
+from repo_paths import FULL_TREE, ROOT, read, resolve  # noqa: E402
 
 
 def load_version() -> dict:
@@ -32,6 +32,13 @@ class Phase1HonestyFreezeTests(unittest.TestCase):
         self.assertIn("no key escrow", sec.lower())
         self.assertIn("Do not make the tree private again", sec)
         self.assertIn("debug-signed previews", sec)
+        cite = read("CITATION.cff")
+        self.assertIn("email: shivampingaledev@proton.me", cite)
+        self.assertIn("email: shivampingaledev@gmail.com", cite)
+        fdroid = read("ports/fdroiddata/metadata/dev.shivampingale.vcport.yml")
+        self.assertIn("AuthorName: Shivam Mangesh Pingale", fdroid)
+        self.assertIn("shivampingaledev@proton.me", fdroid)
+        self.assertIn("shivampingaledev@gmail.com", fdroid)
 
     def test_no_github_release_apk_job(self) -> None:
         wf = read(".github/workflows/vcport.yml")
@@ -253,6 +260,31 @@ class Phase9LegalVersionTests(unittest.TestCase):
             self.assertIn("shivampingaledev@proton.me", blob)
             self.assertIn("shivampingaledev@gmail.com", blob)
         self.assertIn("Shivam Mangesh Pingale", android)
+        footnote = "programming noob with a five-year IT engineering degree"
+        blobs = [
+            android,
+            ios,
+            read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt"),
+            read("ports/README.md"),
+            read("ports/NOTICE"),
+            read("ports/CONTRIBUTING.md"),
+            read("ports/FOSS.md"),
+            read("ports/android/fastlane/metadata/android/en-US/full_description.txt"),
+            read("ports/ios/altstore/source.json"),
+            read("ports/fdroiddata/metadata/dev.shivampingale.vcport.yml"),
+        ]
+        if FULL_TREE:
+            blobs.extend(
+                [
+                    read("README.md"),
+                    read("SECURITY.md"),
+                    read("PORTING.md"),
+                    read("NOTICE"),
+                ]
+            )
+        for blob in blobs:
+            self.assertIn(footnote, blob)
+            self.assertIn("Open to suggestions and advice", blob)
 
     def test_no_fake_fdroid_screenshots(self) -> None:
         shots = resolve("ports/android/fastlane/metadata/android/en-US/images/phoneScreenshots")
@@ -266,7 +298,8 @@ class Phase10RelaunchTests(unittest.TestCase):
         foss = read("ports/FOSS.md")
         self.assertIn("https://github.com/ShivamPingaleDev/Veracrypt_port", foss)
         self.assertIn("v0.3.0", foss)
-        self.assertIn("may still be private", foss)
+        self.assertIn("https://github.com/ShivamPingaleDev/VCPort", foss)
+        self.assertNotIn("may still be private", foss)
         self.assertIn("subdir: ports/android", foss)
         self.assertNotIn("this repository is currently private", foss.lower())
 
