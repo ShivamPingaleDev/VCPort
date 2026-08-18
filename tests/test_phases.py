@@ -72,7 +72,8 @@ class Phase3FatFolderTests(unittest.TestCase):
         test = read("ports/shared/test_volume_main.cpp")
         self.assertIn("vc_list_dir", test)
         self.assertIn('reject ..', test)
-        self.assertIn("exFAT unsupported", test)
+        self.assertIn("create exFAT volume", test)
+        self.assertIn("invalid exFAT boot is not listed as FAT", test)
         self.assertIn("DOCS", test)
         self.assertIn("vc_list_dir_from", test)
         self.assertIn("negative skip", test)
@@ -123,12 +124,19 @@ class Phase3FatFolderTests(unittest.TestCase):
         self.assertIn("Mounted in this app", ios)
         self.assertIn("Dismount", android)
         self.assertIn("Dismount", ios)
+        self.assertIn("lockSession()", android)
+        self.assertIn('Button("Dismount") { lockSession() }', ios)
+        self.assertNotIn('Button("Dismount") { closeVolume() }', ios)
+        self.assertIn("wipeSessionFiles()", ios)
+        self.assertIn("bioSecretState.value = null", android)
+        self.assertIn("createPasswordState.value = \"\"", android)
+        self.assertEqual(ios.count("BiometricStore.deleteAll()"), 1)
         self.assertIn("!truncated!", android)
         self.assertIn("Load more", android)
         self.assertIn("listDir", ios)
         self.assertIn("!truncated!", ios)
         self.assertIn("Load more", ios)
-        self.assertIn("exFAT is not", ios)
+        self.assertIn("FAT and exFAT folders are browsable", ios)
         self.assertNotIn("VolumeDocumentsProvider", read("ports/android/app/src/main/AndroidManifest.xml"))
         jni = read("ports/shared/android_jni.cpp")
         self.assertIn("VC_LIST_UI_MAX", jni)
@@ -146,7 +154,7 @@ class Phase4AndroidTests(unittest.TestCase):
 
     def test_open_list_extract_errors_are_explicit(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
-        self.assertIn("FAT only", main)
+        self.assertIn("FAT and exFAT", main)
         self.assertIn("Wrong password", main)
         self.assertIn("Could not extract", main)
         self.assertIn("NativeBridge.listDir", main)
@@ -255,6 +263,9 @@ class Phase8CiTests(unittest.TestCase):
         self.assertIn("apt-get install -y g++ python3 cmake", wf)
         self.assertIn("assembleFdroidRelease", wf)
         self.assertIn("assembleGithubRelease", wf)
+        self.assertIn("assembleStyledRelease", wf)
+        self.assertIn("assembleLooksgithubRelease", wf)
+        self.assertIn("vcport-looks-apk", wf)
         self.assertIn("ios-native:", wf)
         self.assertIn("iphonesimulator", wf)
         self.assertNotIn("release-apks:", wf)
@@ -335,7 +346,16 @@ class Phase9LegalVersionTests(unittest.TestCase):
     def test_github_emulator_screenshots_are_png(self) -> None:
         shots = resolve("ports/docs/screenshots")
         self.assertTrue(shots.is_dir(), "missing ports/docs/screenshots")
-        names = ["01-volume.png", "02-wrap.png", "03-create.png", "04-tools.png"]
+        names = [
+            "01-volume.png",
+            "02-wrap.png",
+            "03-create.png",
+            "04-tools.png",
+            "05-skin-cyberpunk.png",
+            "06-skin-matrix.png",
+            "07-skin-eva.png",
+            "08-skin-signal.png",
+        ]
         for name in names:
             path = shots / name
             self.assertTrue(path.is_file(), f"missing {path}")

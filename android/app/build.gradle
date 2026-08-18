@@ -28,6 +28,7 @@ android {
         buildConfigField 'String', 'UPSTREAM_GIT', "\"${qcfg(versionJson.upstream_git as String)}\""
         buildConfigField 'String', 'UPSTREAM_RELEASES', "\"${qcfg(versionJson.upstream_releases as String)}\""
         buildConfigField 'String', 'UPSTREAM_TAG', "\"${qcfg(versionJson.upstream_tag as String)}\""
+        buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
@@ -44,10 +45,25 @@ android {
         fdroid {
             dimension 'distribution'
             buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'
+            buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
         }
         github {
             dimension 'distribution'
             buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'
+            buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
+        }
+        // Same applicationId as production. Looks APK on GitHub Releases, not a new package.
+        styled {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'
+            buildConfigField 'boolean', 'ENABLE_SKINS', 'true'
+        }
+        // Looks + the GitHub tap-to-check window (version.json / official VeraCrypt).
+        // Same applicationId; installing it replaces the offline Looks APK.
+        looksgithub {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'
+            buildConfigField 'boolean', 'ENABLE_SKINS', 'true'
         }
     }
 

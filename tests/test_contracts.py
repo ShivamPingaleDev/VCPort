@@ -109,6 +109,8 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("'x86'", gradle)
         self.assertIn("x86_64", gradle)
         self.assertIn("ENABLE_UPDATE_CHECK", gradle)
+        self.assertIn("ENABLE_SKINS", gradle)
+        self.assertNotIn("applicationIdSuffix", gradle)
         self.assertIn("UPSTREAM_GIT", gradle)
         self.assertIn("UPSTREAM_RELEASES", gradle)
         self.assertIn("minifyEnabled false", gradle)
@@ -121,6 +123,10 @@ class VersionMatrixTests(unittest.TestCase):
         pin = read("ports/android/app/src/main/java/dev/shivampingale/vcport/SourcePin.kt")
         fdroid = read("ports/android/app/src/fdroid/java/dev/shivampingale/vcport/UpdateChecker.kt")
         github = read("ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt")
+        styled = read("ports/android/app/src/styled/java/dev/shivampingale/vcport/UpdateChecker.kt")
+        looksgithub = read(
+            "ports/android/app/src/looksgithub/java/dev/shivampingale/vcport/UpdateChecker.kt"
+        )
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("BuildConfig.PORT_VERSION", pin)
         self.assertIn("BuildConfig.SOURCE_MANIFEST", pin)
@@ -128,15 +134,22 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("SourcePin.localVersion", fdroid)
         self.assertIn("SourcePin.localVersion", github)
         self.assertIn("SourcePin.manifest", github)
+        self.assertIn("SourcePin.manifest", looksgithub)
         self.assertIn('error("F-Droid build has no network")', fdroid)
+        self.assertIn('error("Looks build has no network")', styled)
+        self.assertNotIn("INTERNET", styled)
         self.assertIn("android_apk_sha256", github)
+        self.assertIn("android_apk_sha256", looksgithub)
         self.assertIn("upstream_commit", github)
         self.assertIn("upstreamReleases", github)
+        self.assertIn("upstreamReleases", looksgithub)
         self.assertIn("officialNewer", github)
         self.assertIn("sourceMoved", github)
         self.assertIn("sourceDegraded", github)
         self.assertIn("instanceFollowRedirects = false", github)
+        self.assertIn("instanceFollowRedirects = false", looksgithub)
         self.assertIn("TrustedNet.allow", github)
+        self.assertIn("TrustedNet.allow", looksgithub)
         self.assertIn("WINDOW_MS", github)
         self.assertIn("does not install itself", main)
         self.assertIn("sync-upstream.sh", main)
@@ -148,6 +161,7 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("raw.githubusercontent.com", net)
         self.assertNotIn("ServerSocket", main)
         self.assertNotIn("ServerSocket", github)
+        self.assertNotIn("ServerSocket", looksgithub)
 
     def test_ios_plist_and_xcodegen(self) -> None:
         plist = read("ports/ios/VCPort/Info.plist")
@@ -230,6 +244,9 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("Veracrypt_port.git", yml)
         self.assertIn("subdir: ports/android", yml)
         self.assertNotIn("VCPort.git", yml)
+        self.assertNotIn("styled", yml)
+        self.assertNotIn("looksgithub", yml)
+        self.assertNotIn(".looks", yml)
 
     def test_changelog_mentions_current(self) -> None:
         log = read("ports/CHANGELOG.md")
@@ -246,6 +263,10 @@ class NamingAndAttributionTests(unittest.TestCase):
         self.assertIn("This app is not named VeraCrypt", strings)
         self.assertIn("shivampingaledev@proton.me", strings)
         self.assertIn("shivampingaledev@gmail.com", strings)
+        looks = read("ports/android/app/src/styled/res/values/strings.xml")
+        self.assertIn('<string name="app_name">VC Port Looks</string>', looks)
+        looks_net = read("ports/android/app/src/looksgithub/res/values/strings.xml")
+        self.assertIn('<string name="app_name">VC Port Looks</string>', looks_net)
 
     def test_notice(self) -> None:
         notice = read("ports/NOTICE")
@@ -302,6 +323,8 @@ class NamingAndAttributionTests(unittest.TestCase):
         self.assertIn("Do **not** title posts", public)
         self.assertIn("PUBLIC.md", readme)
         self.assertIn("docs/screenshots/01-volume.png", readme)
+        self.assertIn("docs/screenshots/05-skin-cyberpunk.png", readme)
+        self.assertIn("docs/screenshots/08-skin-signal.png", readme)
         for blob in (public, readme):
             self.assertIn("internship", blob.lower())
             self.assertIn("teach", blob.lower())
@@ -347,7 +370,7 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn('android:excludeFromRecents="true"', manifest)
         self.assertIn('android:launchMode="singleTask"', manifest)
         self.assertIn('android:exported="false"', manifest)
-        self.assertIn("dev.shivampingale.vcport.share", manifest)
+        self.assertIn("${applicationId}.share", manifest)
         self.assertNotIn("VolumeDocumentsProvider", manifest)
         self.assertNotIn("MANAGE_EXTERNAL_STORAGE", manifest)
         self.assertIn("network_security_config", manifest)
@@ -359,6 +382,23 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn("android.permission.INTERNET", fdroid)
         self.assertIn('tools:node="remove"', fdroid)
 
+    def test_styled_looks_package_has_no_internet(self) -> None:
+        styled = read("ports/android/app/src/styled/AndroidManifest.xml")
+        self.assertIn("android.permission.INTERNET", styled)
+        self.assertIn('tools:node="remove"', styled)
+        gradle = read("ports/android/app/build.gradle")
+        self.assertNotIn("applicationIdSuffix", gradle)
+        self.assertIn("buildConfigField 'boolean', 'ENABLE_SKINS', 'true'", gradle)
+
+    def test_looksgithub_flavor_has_opt_in_internet_and_skins(self) -> None:
+        gradle = read("ports/android/app/build.gradle")
+        self.assertIn("looksgithub {", gradle)
+        self.assertIn("buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'", gradle)
+        manifest = read("ports/android/app/src/looksgithub/AndroidManifest.xml")
+        self.assertIn("android.permission.INTERNET", manifest)
+        self.assertNotIn('tools:node="remove"', manifest)
+        self.assertIn("user-tapped update check", manifest.lower())
+
     def test_github_flavor_has_opt_in_internet_only(self) -> None:
         github = read("ports/android/app/src/github/AndroidManifest.xml")
         self.assertIn("android.permission.INTERNET", github)
@@ -368,6 +408,7 @@ class AndroidHighThreatTests(unittest.TestCase):
         for rel in (
             "ports/android/app/src/main/res/xml/network_security_config.xml",
             "ports/android/app/src/github/res/xml/network_security_config.xml",
+            "ports/android/app/src/looksgithub/res/xml/network_security_config.xml",
         ):
             xml = read(rel)
             self.assertIn('cleartextTrafficPermitted="false"', xml)
@@ -393,10 +434,31 @@ class AndroidHighThreatTests(unittest.TestCase):
         vault = read("ports/android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt")
         self.assertIn("FLAG_SECURE", hard)
         self.assertIn("wipeSessionFiles", hard)
+        self.assertIn("vc-in-", hard)
         self.assertIn("fun panic", hard)
         self.assertIn("vc_port_volume_key", vault)
         self.assertIn("BiometricVault.KEY_ALIAS", hard)
         self.assertNotIn("takePersistableUriPermission", hard)
+
+    def test_wrap_keeps_password_across_file_picker(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn("holdLockForPicker()", main)
+        self.assertIn("wrapHold", main)
+        self.assertIn("override fun onResume()", main)
+        self.assertIn("holdingForPicker", view)
+        self.assertIn("wrapHold", view)
+        self.assertIn("holdLock", view)
+
+    def test_choose_container_keeps_session_and_shows_name(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn("Selected: $containerLabel", main)
+        self.assertNotIn('label = { Text("Container path") }', main)
+        self.assertIn('bindContainerFd(uri, "rw")', main)
+        self.assertIn("Selected: \\(url.lastPathComponent)", view)
+        self.assertIn("That file is selected", main)
+        self.assertIn("That file is selected", view)
 
     def test_biometric_strong_only(self) -> None:
         vault = read("ports/android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt")
@@ -406,8 +468,11 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn("DEVICE_CREDENTIAL", vault)
         self.assertIn("AES/GCM/NoPadding", vault)
         self.assertIn("setIsStrongBoxBacked", vault)
+        self.assertIn("fun confirm", vault)
+        self.assertIn("prompt.authenticate(builder.build())", vault)
         self.assertIn("userPresence", ios)
         self.assertIn("deviceOwnerAuthentication", ios)
+        self.assertIn("evaluatePolicy(.deviceOwnerAuthentication", ios)
 
     def test_no_gms_firebase_play_integrity(self) -> None:
         blob = ""
@@ -583,7 +648,6 @@ class CrossPortGuiParityTests(unittest.TestCase):
     def test_wrap_panic_share_stay_offline_on_android(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("Panic wipe", main)
-        self.assertIn("Encrypt file", main)
         self.assertIn("Decrypt wrap", main)
         self.assertIn("Share encrypted", main)
         self.assertIn("Stay offline", main)
@@ -595,7 +659,6 @@ class CrossPortGuiParityTests(unittest.TestCase):
     def test_wrap_panic_share_stay_offline_on_ios(self) -> None:
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("Panic wipe", view)
-        self.assertIn("Encrypt file", view)
         self.assertIn("Decrypt wrap", view)
         self.assertIn("Share encrypted file", view)
         self.assertIn("Stay offline", view)
@@ -644,6 +707,19 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("deleteFile", native)
         self.assertIn("vc_import_file", header)
         self.assertIn("vc_delete_file", header)
+
+    def test_create_basket_on_android_and_ios(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        for blob in (main, view):
+            self.assertIn("Add files to basket", blob)
+            self.assertIn("Empty basket", blob)
+            self.assertIn("from the basket into the volume", blob)
+            self.assertIn("BASKET.sha256", blob)
+            self.assertIn("Inside the volume", blob)
+            self.assertIn("exFAT", blob)
+            self.assertIn("Text password (primary)", blob)
+            self.assertIn("will not ask for superuser", blob)
 
     def test_desktop_file_ops_on_android_and_ios(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
@@ -697,6 +773,11 @@ class CrossPortGuiParityTests(unittest.TestCase):
             self.assertIn("adapter.lora", blob)
         self.assertIn("Opening ignores the extension", main)
         self.assertIn("Opening ignores the extension", view)
+        self.assertIn("File name (any extension)", main)
+        self.assertIn("The name is only a disguise", main)
+        self.assertIn("The name is only a disguise", view)
+        self.assertIn("pimState", main)
+        self.assertIn('pimState.value = "0"', main)
         self.assertIn("sanitizeDisguiseName", helper)
         self.assertIn("safetensors", desktop)
         self.assertIn("jpg", desktop)
@@ -716,12 +797,16 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("opt_sse2.c", cmake)
         self.assertIn("Aes_hw_armv8.c", cmake)
         self.assertIn("-march=armv8-a+crypto", cmake)
+        self.assertIn("-mbranch-protection=standard", cmake)
         lists = read("ports/shared/CMakeLists.txt")
         self.assertIn("CRYPTOPP_DISABLE_AESNI", lists)
         self.assertIn("CRYPTOPP_DISABLE_SHANI", lists)
         self.assertIn("TC_IOS", lists)
         self.assertIn('CMAKE_SYSTEM_NAME STREQUAL "iOS"', lists)
         self.assertIn("vc_progress.cpp", lists)
+        self.assertIn("vc_exfat.cpp", lists)
+        self.assertIn("vc_crypto_safety_test", lists)
+        self.assertIn("VC_ENABLE_ASAN", lists)
         self.assertIn("armv8-a+crypto", lists)
         self.assertIn("mfpu=neon", lists)
         self.assertIn("-ftree-vectorize", lists)
@@ -730,6 +815,14 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("arm64|aarch64", wrap)
         self.assertIn("x86_64|amd64", wrap)
         self.assertIn("i686|i386", wrap)
+        self.assertIn("CRYPTOPP_DISABLE_SHANI", wrap)
+        self.assertIn("CRYPTOPP_DISABLE_AESNI", wrap)
+        self.assertIn("-fstack-protector-strong", wrap)
+        self.assertIn("-fno-common", wrap)
+        self.assertIn("-mbranch-protection=standard", wrap)
+        keyfile = read("src/Volume/Keyfile.cpp")
+        self.assertIn("TC_PORT_NO_TOKEN", keyfile)
+        self.assertIn("TC_PORT_NO_TOKEN", lists)
         ios = read("ports/ios/build-native.sh")
         self.assertIn("iphonesimulator", ios)
         self.assertIn("x86_64", ios)

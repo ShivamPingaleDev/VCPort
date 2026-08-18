@@ -199,6 +199,7 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("close volume again", life)
         self.assertIn("vc_lifecycle_test", cmake)
         self.assertIn("run_lifecycle_test.sh", runner)
+        self.assertIn("run_crypto_safety_test.sh", runner)
         self.assertIn("std::thread", life)
         self.assertIn("parallel CPU", life)
         self.assertIn("VeraCrypt AES/Twofish/Serpent/HMAC test vectors", life)
@@ -234,20 +235,33 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("createAndroidComposeRule", ui)
         self.assertIn("Panic wipe", ui)
         self.assertIn("Stay offline. F-Droid: no network.", ui)
-        self.assertIn("Encrypt file", ui)
+        self.assertIn("Decrypt wrap", ui)
         self.assertIn("tab_create", ui)
         self.assertIn("Check for updates", ui)
         self.assertIn("Working…", ui)
+        self.assertIn("BuildConfig.ENABLE_SKINS", ui)
+        self.assertIn("Looks (this phone)", ui)
         self.assertIn("ui-test-junit4", gradle)
         self.assertIn("ui-test-manifest", gradle)
         self.assertIn("animationsDisabled true", gradle)
         self.assertIn("AndroidJUnitRunner", gradle)
         self.assertIn("ENABLE_UPDATE_CHECK", gradle)
+        self.assertIn("ENABLE_SKINS", gradle)
+        self.assertNotIn("applicationIdSuffix", gradle)
         self.assertIn("vcport-api35", script)
         self.assertIn("connectedFdroidDebugAndroidTest", script)
+        self.assertIn("connectedStyledDebugAndroidTest", script)
+        self.assertIn("connectedLooksgithubDebugAndroidTest", script)
         cmake = read("ports/shared/CMakeLists.txt")
         self.assertIn("-fgnu89-inline", cmake)
         self.assertIn("armv8-a+crypto", cmake)
+        self.assertIn("-fstack-protector-strong", cmake)
+        self.assertIn("-fno-common", cmake)
+        self.assertIn("-Wl,-z,relro", cmake)
+        self.assertIn("-Wl,-z,now", cmake)
+        self.assertIn("-Wl,-z,noexecstack", cmake)
+        arm = read("ports/shared/upstream-sources.cmake")
+        self.assertIn("-mbranch-protection=standard", arm)
         jni = read("ports/shared/android_jni.cpp")
         self.assertIn("jni_live_handle", jni)
         self.assertIn("vc_runtime_start", jni)
@@ -256,6 +270,9 @@ class BlackBoxTests(unittest.TestCase):
             "ports/android/app/src/main/java/dev/shivampingale/vcport/NativeBridge.kt"
         )
         self.assertIn("fun isOpen", native)
+        keyfile = read("ports/android/app/src/main/java/dev/shivampingale/vcport/UnlockFactors.kt")
+        self.assertIn("fun openReadable", keyfile)
+        self.assertIn("MAX_KEYFILE", keyfile)
         header = read("ports/shared/vc_mobile.h")
         self.assertIn("vc_runtime_start", header)
         life = read("ports/shared/test_lifecycle_main.cpp")
@@ -321,6 +338,9 @@ class IntegrationTests(unittest.TestCase):
         jni = read("ports/shared/android_jni.cpp")
         self.assertIn("Java_dev_shivampingale_vcport_NativeBridge_progressPercent", jni)
         self.assertIn("Java_dev_shivampingale_vcport_NativeBridge_resetProgress", jni)
+        self.assertIn("JNI_UTF_MAX = 4096", jni)
+        self.assertIn("jni_wipe_string", jni)
+        self.assertIn("VC_HOST_JNI", jni)
 
 
 class FunctionalTests(unittest.TestCase):
@@ -332,6 +352,7 @@ class FunctionalTests(unittest.TestCase):
             self.assertIn("Wipe free space", blob)
             self.assertIn("Panic wipe", blob)
             self.assertIn("Add keyfiles", blob)
+            self.assertIn("Add files to basket", blob)
             self.assertIn("Keyfile generator", blob)
 
     def test_progress_is_in_front_of_the_user(self) -> None:
@@ -340,6 +361,23 @@ class FunctionalTests(unittest.TestCase):
         )
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("fun WorkOverlay", theme)
+        self.assertIn("fun SkinProgress", theme)
+        self.assertIn("CpTerm", theme)
+        self.assertIn("MELCHIOR", theme)
+        self.assertIn("BALTHASAR", theme)
+        self.assertIn("CASPER", theme)
+        self.assertIn("UNIT-01", theme)
+        self.assertIn("drawMagiSeal", theme)
+        self.assertIn("drawSkinFrame", theme)
+        self.assertIn("graphicsLayer", theme)
+        self.assertIn("CompositingStrategy.ModulateAlpha", theme)
+        self.assertIn("fun SkinTabIndicator", theme)
+        self.assertIn("fun SkinCardCap", theme)
+        self.assertIn("skinTextFieldColors", theme)
+        self.assertIn("UNIT-01  SYNC", theme)
+        self.assertIn("sys.ready", theme)
+        self.assertTrue(resolve("ports/android/app/src/main/res/drawable/ic_look_magi.xml").is_file())
+        self.assertTrue(resolve("ports/android/app/src/main/res/drawable/ic_look_unit01.xml").is_file())
         self.assertIn("struct WorkOverlay", view)
         self.assertIn("Nothing runs out of sight.", theme)
         self.assertIn("Nothing runs out of sight.", view)
@@ -415,9 +453,12 @@ class NegativeBoundaryTests(unittest.TestCase):
         self.assertIn("generate rejects length 8", wrap)
         self.assertIn("generate rejects length 65", wrap)
 
-    def test_import_size_cap_is_256_mib(self) -> None:
+    def test_import_size_cap_is_fat32_max(self) -> None:
         mobile = read("ports/shared/vc_mobile.cpp")
-        self.assertIn("VC_IMPORT_MAX = 256 * 1024 * 1024", mobile)
+        self.assertIn("0xFFFFFFFFull", mobile)
+        self.assertIn("file_size64", mobile)
+        self.assertNotIn("VC_IMPORT_MAX = 256 * 1024 * 1024", mobile)
+        self.assertIn("JNI_UTF_MAX = 4096", read("ports/shared/android_jni.cpp"))
 
     def test_keyfile_cap_is_1_mib(self) -> None:
         kotlin = read(
@@ -574,6 +615,14 @@ class BoundedFuzzTests(unittest.TestCase):
         self.assertIn("unwrap rejects bit flips", wrap)
         self.assertIn("unwrap rejects garbage", wrap)
         self.assertIn("unwrap rejects header mutation", wrap)
+        safety = read("ports/shared/test_crypto_safety_main.cpp")
+        fuzz = read("ports/shared/fuzz_wrap.cc")
+        mk = read("ports/shared/Makefile.crypto-safety")
+        self.assertIn("FIPS-197", safety)
+        self.assertIn("vc_secure_wipe", safety)
+        self.assertIn("LLVMFuzzerTestOneInput", fuzz)
+        self.assertIn("-fsanitize=address,undefined", mk)
+        self.assertIn("valgrind", mk)
 
 
 class StaticContractTests(unittest.TestCase):
@@ -590,6 +639,7 @@ class StaticContractTests(unittest.TestCase):
             "Smoke",
             "Property",
             "Bounded fuzz",
+            "libFuzzer",
         ):
             self.assertIn(word, doc)
 

@@ -3,6 +3,7 @@ package dev.shivampingale.vcport
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -11,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,6 +92,16 @@ class MainActivity : AppCompatActivity() {
     private val incomingState = mutableStateOf<File?>(null)
     private val passwordState = mutableStateOf("")
     private val wrapPasswordState = mutableStateOf("")
+    private val pimState = mutableStateOf("0")
+    private val createPimState = mutableStateOf("0")
+    private val createHiddenPimState = mutableStateOf("0")
+    private val newPimState = mutableStateOf("0")
+    private val hiddenProtectPimState = mutableStateOf("0")
+    private val keyfileUrisState = mutableStateOf(listOf<Uri>())
+    private val basketUrisState = mutableStateOf(listOf<Uri>())
+    private val basketHashesState = mutableStateOf(mapOf<String, String>())
+    private val hiddenKeyfileUrisState = mutableStateOf(listOf<Uri>())
+    private val containerLabelState = mutableStateOf("")
     private val handleState = mutableStateOf(0L)
     private val entriesState = mutableStateOf(listOf<VaultEntry>())
     private val dirPathState = mutableStateOf("")
@@ -96,7 +109,33 @@ class MainActivity : AppCompatActivity() {
     private val busyState = mutableStateOf(false)
     private val tabState = mutableIntStateOf(0)
     private val lastPlainFilesState = mutableStateOf(listOf<File>())
+    private val useBiometricState = mutableStateOf(false)
+    private val bioSecretState = mutableStateOf<ByteArray?>(null)
+    private val createPasswordState = mutableStateOf("")
+    private val createHiddenPasswordState = mutableStateOf("")
+    private val newPasswordState = mutableStateOf("")
+    private val hiddenProtectPasswordState = mutableStateOf("")
     private var suppressLock = false
+    private var wrapHold = ""
+    private var containerPfd: ParcelFileDescriptor? = null
+
+    /** File pickers stop this activity. Do not wipe the wrap password in that gap. */
+    private fun holdLockForPicker() {
+        suppressLock = true
+    }
+
+    private fun lookPrefs() = getSharedPreferences("vc_port_look", MODE_PRIVATE)
+
+    private fun loadSkin(): VcSkin {
+        if (!BuildConfig.ENABLE_SKINS) return VcSkin.Desktop
+        val name = lookPrefs().getString("skin", VcSkin.Desktop.name) ?: VcSkin.Desktop.name
+        return VcSkin.entries.find { it.name == name } ?: VcSkin.Desktop
+    }
+
+    private fun saveSkin(skin: VcSkin) {
+        if (!BuildConfig.ENABLE_SKINS) return
+        lookPrefs().edit().putString("skin", skin.name).apply()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,47 +144,57 @@ class MainActivity : AppCompatActivity() {
         val vault = BiometricVault(this)
         handleIncoming(intent)
         setContent {
-            VcPortTheme {
+            var skin by remember { mutableStateOf(loadSkin()) }
+            VcPortTheme(skin = skin) {
                 var path by pathState
                 var containerUri by containerUriState
                 var password by passwordState
-                var pim by remember { mutableStateOf("0") }
+                var pim by pimState
+                var wrapPassword by wrapPasswordState
+                var keyfileUris by keyfileUrisState
+                var basketUris by basketUrisState
+                var basketHashes by basketHashesState
+                var hiddenKeyfileUris by hiddenKeyfileUrisState
+                var containerLabel by containerLabelState
                 var useTextPassword by remember { mutableStateOf(true) }
-                var useBiometric by remember { mutableStateOf(false) }
+                var useBiometric by useBiometricState
                 var rememberBio by remember { mutableStateOf(false) }
                 var rememberConfirmOpen by remember { mutableStateOf(false) }
                 var rememberConfirmText by remember { mutableStateOf("") }
-                var bioSecret by remember { mutableStateOf<ByteArray?>(null) }
-                var keyfileUris by remember { mutableStateOf(listOf<Uri>()) }
+                var bioSecret by bioSecretState
                 var status by statusState
                 var entries by entriesState
                 var handle by handleState
                 var dirPath by dirPathState
                 var listTruncated by listTruncatedState
-                var wrapPassword by wrapPasswordState
                 var busy by busyState
                 var tab by tabState
+                val tabScroll = rememberScrollState()
+                LaunchedEffect(tab) { tabScroll.scrollTo(0) }
                 var moreFactors by remember { mutableStateOf(false) }
                 var createCipher by remember { mutableStateOf(NativeBridge.DEFAULT_CIPHER) }
                 var createKdf by remember { mutableStateOf(NativeBridge.DEFAULT_KDF) }
-                var createSizeMb by remember { mutableStateOf("16") }
-                var createPassword by remember { mutableStateOf("") }
-                var createPim by remember { mutableStateOf("0") }
+                var createSizeAmount by remember { mutableStateOf("16") }
+                var createSizeUnit by remember { mutableStateOf(SizeUnit.MiB) }
+                var createFilesystem by remember { mutableStateOf("FAT") }
+                var createHiddenSizeAmount by remember { mutableStateOf("4") }
+                var createHiddenSizeUnit by remember { mutableStateOf(SizeUnit.MiB) }
+                var createPassword by createPasswordState
+                var createPim by createPimState
                 var createHidden by remember { mutableStateOf(false) }
-                var createHiddenPassword by remember { mutableStateOf("") }
-                var createHiddenPim by remember { mutableStateOf("0") }
-                var createHiddenSizeMb by remember { mutableStateOf("4") }
+                var createHiddenPassword by createHiddenPasswordState
+                var createHiddenPim by createHiddenPimState
                 var createFileName by remember { mutableStateOf("volume.hc") }
                 var entropyPercent by remember { mutableIntStateOf(0) }
-                var newPassword by remember { mutableStateOf("") }
-                var newPim by remember { mutableStateOf("0") }
+                var newPassword by newPasswordState
+                var newPim by newPimState
                 var headerKdf by remember { mutableStateOf("(keep current)") }
                 var useBackupHeader by remember { mutableStateOf(false) }
                 var readOnlyOpen by remember { mutableStateOf(false) }
                 var trueCryptMode by remember { mutableStateOf(false) }
                 var protectHidden by remember { mutableStateOf(false) }
-                var hiddenProtectPassword by remember { mutableStateOf("") }
-                var hiddenProtectPim by remember { mutableStateOf("0") }
+                var hiddenProtectPassword by hiddenProtectPasswordState
+                var hiddenProtectPim by hiddenProtectPimState
                 var namePrompt by remember { mutableStateOf<String?>(null) }
                 var namePromptValue by remember { mutableStateOf("") }
                 var pendingExportFile by remember { mutableStateOf<File?>(null) }
@@ -154,7 +203,7 @@ class MainActivity : AppCompatActivity() {
                 var pendingFromDeviceMove by remember { mutableStateOf(false) }
                 var selectedNames by remember { mutableStateOf(setOf<String>()) }
                 var lastPlainFiles by lastPlainFilesState
-                val incoming by incomingState
+                var incoming by incomingState
                 val colors = MaterialTheme.colorScheme
                 LaunchedEffect(dirPath, handle) {
                     selectedNames = emptySet()
@@ -171,30 +220,34 @@ class MainActivity : AppCompatActivity() {
                     overlayPercent = NativeBridge.progressPercent()
                     while (true) {
                         val phase = NativeBridge.progressPhase()
-                        overlayTitle = phase.ifEmpty { status }
-                        overlayPercent = NativeBridge.progressPercent()
+                        val nextTitle = phase.ifEmpty { status }
+                        val nextPct = NativeBridge.progressPercent()
+                        if (overlayTitle != nextTitle) overlayTitle = nextTitle
+                        if (overlayPercent != nextPct) overlayPercent = nextPct
                         delay(100)
                     }
                 }
                 LaunchedEffect(tab) {
-                    if (tab == 2) {
+                    if (tab == 1) {
                         NativeBridge.resetEntropy()
                         entropyPercent = 0
                     }
-                    if (tab == 3) {
+                    if (tab == 2) {
                         newPim = pim
                     }
                 }
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
                     if (uri != null) {
                         ShareHelper.persistRead(this@MainActivity, uri)
+                        incoming = null
                         containerUri = uri
+                        containerLabel = ShareHelper.displayName(this@MainActivity, uri) ?: "container"
                         copyContainerAsync(uri) { copied ->
                             path = copied
                             status = if (copied.isEmpty())
-                                "Could not copy the container."
+                                "Could not open the container. Not enough free space, or the Files picker could not be read."
                             else
-                                "Container: ${ShareHelper.displayName(this@MainActivity, uri) ?: File(copied).name}"
+                                "Selected $containerLabel. Open volume to browse folders here."
                         }
                     }
                 }
@@ -211,8 +264,62 @@ class MainActivity : AppCompatActivity() {
                 val keyfilePicker = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenMultipleDocuments()
                 ) { uris: List<Uri> ->
-                    uris.forEach { ShareHelper.persistRead(this@MainActivity, it) }
-                    keyfileUris = (keyfileUris + uris).distinct()
+                    val kept = keyfileUris.toMutableList()
+                    var failed: String? = null
+                    for (uri in uris) {
+                        ShareHelper.persistRead(this@MainActivity, uri)
+                        val copied = KeyfileIo.copyUri(this@MainActivity, uri)
+                        if (copied == null) {
+                            failed = ShareHelper.displayName(this@MainActivity, uri) ?: "keyfile"
+                        } else {
+                            if (uri !in kept) kept += uri
+                        }
+                    }
+                    keyfileUris = kept
+                    status = if (failed != null)
+                        "Could not read $failed. Pick it again, or open it from the Files app with VC Port. Any file can be a keyfile; VeraCrypt uses the first 1 MiB."
+                    else
+                        "Keyfile(s) added. Any file works; only the first 1 MiB is mixed, same as VeraCrypt on a computer."
+                }
+                val hiddenKeyfilePicker = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenMultipleDocuments()
+                ) { uris: List<Uri> ->
+                    val kept = hiddenKeyfileUris.toMutableList()
+                    var failed: String? = null
+                    for (uri in uris) {
+                        ShareHelper.persistRead(this@MainActivity, uri)
+                        val copied = KeyfileIo.copyUri(this@MainActivity, uri)
+                        if (copied == null) {
+                            failed = ShareHelper.displayName(this@MainActivity, uri) ?: "keyfile"
+                        } else if (uri !in kept) {
+                            kept += uri
+                        }
+                    }
+                    hiddenKeyfileUris = kept
+                    status = if (failed != null)
+                        "Could not read $failed as a nested keyfile."
+                    else
+                        "Nested keyfile(s) added. Same rule as outer: first 1 MiB."
+                }
+                val basketPicker = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenMultipleDocuments()
+                ) { uris: List<Uri> ->
+                    if (uris.isEmpty()) return@rememberLauncherForActivityResult
+                    val kept = basketUris.toMutableList()
+                    for (uri in uris) {
+                        ShareHelper.persistRead(this@MainActivity, uri)
+                        if (uri !in kept) kept += uri
+                    }
+                    basketUris = kept
+                    status = "Basket: ${basketSummary(kept)}. SHA-256 runs in this session only."
+                    Thread {
+                        val extra = kept.associate { uri ->
+                            uri.toString() to (BasketHash.sha256(this@MainActivity, uri) ?: "")
+                        }.filterValues { it.isNotEmpty() }
+                        runOnUiThread {
+                            basketHashes = basketHashes + extra
+                        }
+                    }.start()
                 }
                 val importBioPicker = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenDocument()
@@ -229,12 +336,6 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                val wrapPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-                    if (uri != null) wrapSelectedFile(uri, wrapPassword) { status = it }
-                }
-                val unwrapPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-                    if (uri != null) unwrapSelectedFile(uri, wrapPassword) { status = it }
-                }
                 val createSaver = rememberLauncherForActivityResult(
                     ActivityResultContracts.CreateDocument("application/octet-stream")
                 ) { uri: Uri? ->
@@ -244,8 +345,15 @@ class MainActivity : AppCompatActivity() {
                             contentResolver.openOutputStream(uri)?.use { out ->
                                 File(path).inputStream().use { input -> input.copyTo(out) }
                             }
+                            incoming = null
                             containerUri = uri
-                            status = "Saved encrypted container. Share encrypted from the bar below, or Open volume."
+                            containerLabel = ShareHelper.displayName(this@MainActivity, uri)
+                                ?: File(path).name
+                            holdLockForPicker()
+                            copyContainerAsync(uri) { copied ->
+                                if (copied.isNotEmpty()) path = copied
+                                status = "Saved $containerLabel. That file is selected. Open volume, or Share encrypted."
+                            }
                         } catch (_: Exception) {
                             status = "Created in app cache, but could not save a copy."
                         }
@@ -264,6 +372,20 @@ class MainActivity : AppCompatActivity() {
                             status = "Saved ${file.name}."
                         } catch (_: Exception) {
                             status = "Could not save ${file.name}."
+                        }
+                    }
+                }
+                val unwrapPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                    val secret = wrapHold.ifEmpty { wrapPassword }
+                    if (uri != null) {
+                        unwrapSelectedFile(uri, secret, { status = it }) { plain ->
+                            pendingExportFile = plain
+                            lastPlainFiles = listOf(plain)
+                            holdLockForPicker()
+                            window.decorView.post {
+                                holdLockForPicker()
+                                toolSaver.launch(plain.name)
+                            }
                         }
                     }
                 }
@@ -325,24 +447,35 @@ class MainActivity : AppCompatActivity() {
                     panicWipe()
                     password = ""
                     wrapPassword = ""
+                    createPassword = ""
+                    createHiddenPassword = ""
+                    hiddenProtectPassword = ""
+                    newPassword = ""
+                    bioSecret = null
+                    useBiometric = false
                     handle = 0
                     entries = emptyList()
                     dirPath = ""
+                    basketUris = emptyList()
                     status = "Panic wipe complete. Keystore, cache, clipboard, and remembered factors are gone."
                 }
 
                 Box(Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.imePadding(),
-                    containerColor = colors.background,
+                    containerColor = Color.Transparent,
                     topBar = {
+                        Box(Modifier.background(skinHeaderBrush(skin))) {
                         TopAppBar(
                             title = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Lock, contentDescription = null, tint = Color.White)
+                                    Icon(Icons.Filled.Lock, contentDescription = null, tint = colors.onPrimary)
                                     Spacer(Modifier.padding(6.dp))
                                     Column {
-                                        Text("VC Port", style = MaterialTheme.typography.titleLarge)
+                                        Text(
+                                            if (BuildConfig.ENABLE_SKINS) "VC Port Looks" else "VC Port",
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
                                         Text(
                                             if (NativeBridge.isOpen(handle))
                                                 "Mounted in this app"
@@ -351,7 +484,7 @@ class MainActivity : AppCompatActivity() {
                                             else
                                                 "Stay offline. F-Droid: no network.",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.85f),
+                                            color = colors.onPrimary.copy(alpha = 0.85f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -363,12 +496,12 @@ class MainActivity : AppCompatActivity() {
                                     TextButton(
                                         onClick = { lockSession() },
                                         enabled = !busy,
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+                                        colors = ButtonDefaults.textButtonColors(contentColor = colors.onPrimary)
                                     ) { Text("Dismount") }
                                 }
                                 TextButton(
                                     onClick = { runPanic() },
-                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFCDD2))
+                                    colors = ButtonDefaults.textButtonColors(contentColor = colors.error)
                                 ) {
                                     Icon(Icons.Filled.Warning, contentDescription = null)
                                     Spacer(Modifier.padding(4.dp))
@@ -376,18 +509,24 @@ class MainActivity : AppCompatActivity() {
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
-                                containerColor = VcDesktopBlue,
-                                titleContentColor = Color.White,
-                                actionIconContentColor = Color.White
+                                containerColor = Color.Transparent,
+                                titleContentColor = colors.onPrimary,
+                                actionIconContentColor = colors.onPrimary
                             )
                         )
+                        }
                     },
                     bottomBar = {
                         val incomingFile = incoming
                         val selectedFiles = entries.filter { it.name in selectedNames && !it.isDir }
-                        val cipherName = incomingFile?.name
-                            ?: containerUri?.let { ShareHelper.displayName(this@MainActivity, it) }
-                            ?: path.takeIf { it.isNotEmpty() }?.let { File(it).name }
+                        val cipherName = when {
+                            incomingFile != null && ShareHelper.looksLikeWrap(incomingFile.name) ->
+                                incomingFile.name
+                            containerLabel.isNotEmpty() -> containerLabel
+                            incomingFile != null -> incomingFile.name
+                            else -> containerUri?.let { ShareHelper.displayName(this@MainActivity, it) }
+                                ?: path.takeIf { it.isNotEmpty() && !nativePathIsInternal(it) }?.let { File(it).name }
+                        }
                         val inFrontLabel = when {
                             selectedFiles.isNotEmpty() ->
                                 selectedFiles.joinToString { it.name } + " — decrypted from the open volume"
@@ -413,7 +552,10 @@ class MainActivity : AppCompatActivity() {
                                     incoming = incomingFile,
                                     containerUri = containerUri,
                                     path = path,
-                                    pickEncrypted = { shareEncPicker.launch(arrayOf("*/*")) },
+                                    pickEncrypted = {
+                                        holdLockForPicker()
+                                        shareEncPicker.launch(arrayOf("*/*"))
+                                    },
                                     onStatus = { status = it }
                                 )
                             },
@@ -437,7 +579,7 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         StatusBanner(
                             status = status,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                         incoming?.let { file ->
                             VcCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -445,8 +587,10 @@ class MainActivity : AppCompatActivity() {
                                 FilledTonalButton(
                                     onClick = {
                                         path = copyIncomingAsContainer(file)
+                                        containerLabel = file.name
+                                        containerUri = null
                                         tab = 0
-                                        status = "Using ${file.name} as container."
+                                        status = "Selected ${file.name}. Open volume to browse folders here."
                                     },
                                     enabled = !busy,
                                     modifier = Modifier.fillMaxWidth()
@@ -459,9 +603,14 @@ class MainActivity : AppCompatActivity() {
                                     modifier = Modifier.fillMaxWidth()
                                 ) { Text("Share encrypted") }
                                 if (ShareHelper.looksLikeWrap(file.name)) {
+                                    SecretField(
+                                        wrapPassword,
+                                        { wrapPassword = it },
+                                        "Wrap password (never stored)",
+                                        enabled = !busy
+                                    )
                                     OutlinedButton(
                                         onClick = {
-                                            tab = 1
                                             unwrapIncomingFile(file, wrapPassword) { status = it }
                                         },
                                         enabled = !busy,
@@ -479,6 +628,11 @@ class MainActivity : AppCompatActivity() {
                                 busy = busy,
                                 onUp = {
                                     dirPath = parentDir(dirPath)
+                                    loadDir(handle, dirPath, { entries = it }, { status = it })
+                                },
+                                onGoToPath = { target ->
+                                    dirPath = target
+                                    selectedNames = emptySet()
                                     loadDir(handle, dirPath, { entries = it }, { status = it })
                                 },
                                 onOpen = { entry ->
@@ -568,94 +722,84 @@ class MainActivity : AppCompatActivity() {
                             )
                         } else {
                             ScrollableTabRow(
-                                selectedTabIndex = tab.coerceIn(0, 3),
-                                containerColor = colors.background,
+                                selectedTabIndex = tab.coerceIn(0, 2),
+                                containerColor = if (skin == VcSkin.Desktop) {
+                                    colors.surface.copy(alpha = 0.94f)
+                                } else {
+                                    colors.background.copy(alpha = 0.35f)
+                                },
                                 contentColor = colors.primary,
-                                edgePadding = 8.dp
+                                edgePadding = 8.dp,
+                                indicator = { positions ->
+                                    val i = tab.coerceIn(0, positions.lastIndex.coerceAtLeast(0))
+                                    if (positions.isNotEmpty()) {
+                                        SkinTabIndicator(positions[i])
+                                    }
+                                }
                             ) {
                                 Tab(selected = tab == 0, onClick = { tab = 0 }, modifier = Modifier.testTag("tab_volume"), text = { Text("Volume") })
-                                Tab(selected = tab == 1, onClick = { tab = 1 }, modifier = Modifier.testTag("tab_wrap"), text = { Text("Wrap") })
-                                Tab(selected = tab == 2, onClick = { tab = 2 }, modifier = Modifier.testTag("tab_create"), text = { Text("Create") })
-                                Tab(selected = tab == 3, onClick = { tab = 3 }, modifier = Modifier.testTag("tab_tools"), text = { Text("Tools") })
+                                Tab(selected = tab == 1, onClick = { tab = 1 }, modifier = Modifier.testTag("tab_create"), text = { Text("Create") })
+                                Tab(selected = tab == 2, onClick = { tab = 2 }, modifier = Modifier.testTag("tab_tools"), text = { Text("Tools") })
                             }
                             Column(
                                 Modifier
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    .verticalScroll(tabScroll)
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 when (tab) {
                                     1 -> {
                                         VcCard {
-                                            Text("Wrap a single file", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Encrypt one file with a password. The result is a .vcpw wrap you can share. Unwrap it later in this app.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            SecretField(
-                                                wrapPassword,
-                                                { wrapPassword = it },
-                                                "Wrap password (never stored)",
-                                                enabled = !busy
-                                            )
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    val generated = NativeBridge.generatePassword(64)
-                                                    if (generated != null) {
-                                                        wrapPassword = generated
-                                                        status = "Generated a 64-character password in memory. Copy once if you need it elsewhere. It is not saved."
-                                                    } else {
-                                                        status = "Password generator failed."
+                                            Text("File basket", style = MaterialTheme.typography.titleMedium)
+                                            VcHint("Copied into the new volume. Originals stay. SHA-256 is session-only; BASKET.sha256 is written inside.")
+                                            if (basketUris.isEmpty()) {
+                                                Text("No files in the basket.", style = MaterialTheme.typography.bodySmall)
+                                            } else {
+                                                Text(basketSummary(basketUris), style = MaterialTheme.typography.bodySmall)
+                                                basketUris.forEach { uri ->
+                                                    val hex = basketHashes[uri.toString()]
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Column(Modifier.weight(1f)) {
+                                                            Text(
+                                                                ShareHelper.displayName(this@MainActivity, uri) ?: uri.toString(),
+                                                                style = MaterialTheme.typography.bodySmall
+                                                            )
+                                                            Text(
+                                                                hex?.let { "SHA-256 ${BasketHash.shortHex(it)}" } ?: "SHA-256 …",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = colors.onSurfaceVariant
+                                                            )
+                                                        }
+                                                        TextButton(onClick = {
+                                                            basketUris = basketUris.filterNot { it == uri }
+                                                            basketHashes = basketHashes - uri.toString()
+                                                        }) { Text("Remove") }
                                                     }
+                                                }
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    holdLockForPicker()
+                                                    basketPicker.launch(arrayOf("*/*"))
                                                 },
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
-                                            ) { Text("Generate strong password") }
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            ) { Text("Add files to basket") }
+                                            if (basketUris.isNotEmpty()) {
                                                 OutlinedButton(
                                                     onClick = {
-                                                        if (wrapPassword.isNotEmpty()) {
-                                                            SensitiveClipboard.copyOnce(this@MainActivity, wrapPassword)
-                                                            status = "Copied once. Clipboard clears in 30 seconds. No history is kept."
-                                                        }
+                                                        basketUris = emptyList()
+                                                        basketHashes = emptyMap()
+                                                        status = "Basket emptied. Files on the phone were not deleted."
                                                     },
-                                                    modifier = Modifier.weight(1f)
-                                                ) { Text("Copy once") }
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        SensitiveClipboard.forget(this@MainActivity)
-                                                        wrapPassword = ""
-                                                        status = "Password forgotten. Clipboard cleared."
-                                                    },
-                                                    modifier = Modifier.weight(1f)
-                                                ) { Text("Forget password") }
+                                                    enabled = !busy,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) { Text("Empty basket") }
                                             }
-                                            Button(
-                                                onClick = { wrapPicker.launch(arrayOf("*/*")) },
-                                                enabled = !busy,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) { Text("Encrypt file") }
-                                            OutlinedButton(
-                                                onClick = { unwrapPicker.launch(arrayOf("*/*")) },
-                                                enabled = !busy,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) { Text("Decrypt wrap") }
                                         }
-                                    }
-                                    2 -> {
                                         VcCard {
                                             Text("Encryption Options", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Creates a standard VeraCrypt container. The file name can be anything — volume.hc, photo.jpg, image.png, model.safetensors, adapter.lora. That name is only a disguise: a .jpg volume is not a photo. Open it in VeraCrypt on Windows, macOS, Linux, or another phone with the same password, PIM, and keyfiles. Fingerprint, face, or screen lock only unlock those factors on THIS phone — they are not stored in the volume header.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "Same cipher and KDF list as the desktop volume wizard. Default is AES(Twofish(Serpent)) with HMAC-SHA-512, XTS, FAT. Opening uses whichever password you type (outer or nested) — there is no open-time hidden checkbox.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
+                                            VcHint("Opening ignores the extension. Opening uses whichever password you type — there is no open-time hidden checkbox.")
                                             OptionDropdown(
                                                 "Encryption Algorithm",
                                                 NativeBridge.CIPHERS,
@@ -671,12 +815,13 @@ class MainActivity : AppCompatActivity() {
                                                 enabled = !busy
                                             )
                                             OptionDropdown(
-                                                "File name / disguise",
-                                                ShareHelper.DISGUISE_NAMES,
-                                                if (createFileName in ShareHelper.DISGUISE_NAMES) createFileName else "volume.hc",
-                                                { createFileName = it },
+                                                "Inside the volume",
+                                                listOf("FAT", "exFAT"),
+                                                createFilesystem,
+                                                { createFilesystem = it },
                                                 enabled = !busy
                                             )
+                                            VcHint("exFAT if a file is over 4 GiB.")
                                             OutlinedTextField(
                                                 createFileName,
                                                 { createFileName = it.filterNot { ch -> ch == '/' || ch == '\\' }.take(120) },
@@ -685,26 +830,34 @@ class MainActivity : AppCompatActivity() {
                                                 enabled = !busy,
                                                 singleLine = true
                                             )
-                                            Text(
-                                                "Opening ignores the extension. The volume is detected only if the password, PIM, and keyfiles decrypt the header.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            OutlinedTextField(
-                                                createSizeMb,
-                                                { createSizeMb = it.filter { ch -> ch.isDigit() }.take(4) },
-                                                label = { Text("Size (MiB)") },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                enabled = !busy,
-                                                singleLine = true,
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                            )
+                                            VcHint("The name is only a disguise — volume.hc, photo.jpg, image.png, model.safetensors, adapter.lora.")
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                OutlinedTextField(
+                                                    createSizeAmount,
+                                                    { createSizeAmount = it.filter { ch -> ch.isDigit() }.take(7) },
+                                                    label = { Text("Size") },
+                                                    modifier = Modifier.weight(1f),
+                                                    enabled = !busy,
+                                                    singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                                )
+                                                OptionDropdown(
+                                                    "Unit",
+                                                    SizeUnit.labels,
+                                                    createSizeUnit.label,
+                                                    { createSizeUnit = SizeUnit.fromLabel(it) },
+                                                    enabled = !busy,
+                                                    modifier = Modifier.weight(0.85f)
+                                                )
+                                            }
+                                            VcHint("2 MiB–64 GiB.")
                                             SecretField(
                                                 createPassword,
                                                 { createPassword = it },
                                                 "Volume password (never stored)",
                                                 enabled = !busy
                                             )
+                                            Text(PasswordEntropy.label(createPassword), style = MaterialTheme.typography.bodySmall)
                                             OutlinedTextField(
                                                 createPim,
                                                 { createPim = it },
@@ -719,7 +872,7 @@ class MainActivity : AppCompatActivity() {
                                                     val generated = NativeBridge.generatePassword(64)
                                                     if (generated != null) {
                                                         createPassword = generated
-                                                        status = "Generated a 64-character password in memory. Copy once if you need it elsewhere. It is not saved."
+                                                        status = PasswordEntropy.label(generated) + " Generated a 64-character password in memory. Copy once if you need it elsewhere. It is not saved."
                                                     }
                                                 },
                                                 enabled = !busy,
@@ -758,7 +911,10 @@ class MainActivity : AppCompatActivity() {
                                                 }
                                             }
                                             OutlinedButton(
-                                                onClick = { keyfilePicker.launch(arrayOf("*/*")) },
+                                                onClick = {
+                                                    holdLockForPicker()
+                                                    keyfilePicker.launch(arrayOf("*/*"))
+                                                },
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Add keyfiles") }
@@ -776,7 +932,7 @@ class MainActivity : AppCompatActivity() {
                                             }
                                             if (createHidden) {
                                                 Text(
-                                                    "Creates a second volume inside this container, like the desktop hidden-volume wizard. Use a different password. Do not fill the outer volume or you will overwrite the nested one. A PC/Mac opens the outer or nested volume depending only on which password you type.",
+                                                    "Same cipher and KDF. Different password. Do not fill the outer volume.",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = colors.onSurfaceVariant
                                                 )
@@ -786,6 +942,18 @@ class MainActivity : AppCompatActivity() {
                                                     "Nested volume password",
                                                     enabled = !busy
                                                 )
+                                                Text(PasswordEntropy.label(createHiddenPassword), style = MaterialTheme.typography.bodySmall)
+                                                FilledTonalButton(
+                                                    onClick = {
+                                                        val generated = NativeBridge.generatePassword(64)
+                                                        if (generated != null) {
+                                                            createHiddenPassword = generated
+                                                            status = PasswordEntropy.label(generated) + " Nested password generated in memory. It is not saved."
+                                                        }
+                                                    },
+                                                    enabled = !busy,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) { Text("Generate nested password") }
                                                 OutlinedTextField(
                                                     createHiddenPim,
                                                     { createHiddenPim = it },
@@ -795,15 +963,46 @@ class MainActivity : AppCompatActivity() {
                                                     singleLine = true,
                                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                                                 )
-                                                OutlinedTextField(
-                                                    createHiddenSizeMb,
-                                                    { createHiddenSizeMb = it.filter { ch -> ch.isDigit() }.take(4) },
-                                                    label = { Text("Nested size (MiB)") },
-                                                    modifier = Modifier.fillMaxWidth(),
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    OutlinedTextField(
+                                                        createHiddenSizeAmount,
+                                                        { createHiddenSizeAmount = it.filter { ch -> ch.isDigit() }.take(7) },
+                                                        label = { Text("Nested size") },
+                                                        modifier = Modifier.weight(1f),
+                                                        enabled = !busy,
+                                                        singleLine = true,
+                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                                    )
+                                                    OptionDropdown(
+                                                        "Unit",
+                                                        SizeUnit.labels,
+                                                        createHiddenSizeUnit.label,
+                                                        { createHiddenSizeUnit = SizeUnit.fromLabel(it) },
+                                                        enabled = !busy,
+                                                        modifier = Modifier.weight(0.85f)
+                                                    )
+                                                }
+                                                Text("Nested keyfiles", style = MaterialTheme.typography.titleSmall)
+                                                hiddenKeyfileUris.forEach { uri ->
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            ShareHelper.displayName(this@MainActivity, uri) ?: uri.toString(),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                        TextButton(onClick = { hiddenKeyfileUris = hiddenKeyfileUris.filterNot { it == uri } }) {
+                                                            Text("Remove")
+                                                        }
+                                                    }
+                                                }
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        holdLockForPicker()
+                                                        hiddenKeyfilePicker.launch(arrayOf("*/*"))
+                                                    },
                                                     enabled = !busy,
-                                                    singleLine = true,
-                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                                )
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) { Text("Add nested keyfiles") }
                                             }
                                             if (vault.isAvailable()) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -816,18 +1015,17 @@ class MainActivity : AppCompatActivity() {
                                                     }, enabled = !busy)
                                                     Text("Fingerprint, face, or screen lock")
                                                 }
-                                                Text(
-                                                    "Mixed as a VeraCrypt keyfile. Export it to open this volume on a PC, Mac, or another phone. Do not use phone unlock as the only factor in a danger-state — biometrics can be compelled.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = colors.onSurfaceVariant
-                                                )
+                                                VcHint("Extra keyfile. Can be compelled.")
                                                 Text(
                                                     bioSecret?.let { "Phone-unlock keyfile ready (${it.size} bytes)." }
                                                         ?: "Check the box to create a random keyfile, or import one you already use on a computer.",
                                                     style = MaterialTheme.typography.bodySmall
                                                 )
                                                 OutlinedButton(
-                                                    onClick = { importBioPicker.launch(arrayOf("*/*")) },
+                                                    onClick = {
+                                                        holdLockForPicker()
+                                                        importBioPicker.launch(arrayOf("*/*"))
+                                                    },
                                                     enabled = !busy,
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) { Text("Import keyfile") }
@@ -848,7 +1046,7 @@ class MainActivity : AppCompatActivity() {
                                                 ) { Text("Export keyfile") }
                                             } else {
                                                 Text(
-                                                    "Fingerprint, face, or screen lock: set a PIN, pattern, password, fingerprint, or face in Android settings to use phone unlock as a VeraCrypt keyfile factor.",
+                                                    "Fingerprint, face, or screen lock: set a lock in Android settings.",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = colors.onSurfaceVariant
                                                 )
@@ -859,7 +1057,10 @@ class MainActivity : AppCompatActivity() {
                                                         vault = vault,
                                                         password = createPassword,
                                                         pimText = createPim,
-                                                        sizeMbText = createSizeMb,
+                                                        sizeBytes = SizeUnits.toBytes(
+                                                            createSizeAmount.toLongOrNull() ?: 0L,
+                                                            createSizeUnit
+                                                        ),
                                                         cipher = createCipher,
                                                         kdf = createKdf,
                                                         keyfileUris = keyfileUris,
@@ -869,16 +1070,29 @@ class MainActivity : AppCompatActivity() {
                                                         hidden = createHidden,
                                                         hiddenPassword = createHiddenPassword,
                                                         hiddenPimText = createHiddenPim,
-                                                        hiddenSizeMbText = createHiddenSizeMb,
+                                                        hiddenSizeBytes = SizeUnits.toBytes(
+                                                            createHiddenSizeAmount.toLongOrNull() ?: 0L,
+                                                            createHiddenSizeUnit
+                                                        ),
+                                                        hiddenKeyfileUris = hiddenKeyfileUris,
                                                         fileName = createFileName,
+                                                        filesystem = createFilesystem,
                                                         entropyPercent = entropyPercent,
+                                                        basketUris = basketUris,
                                                         onPath = {
                                                             path = it
+                                                            containerLabel = File(it).name
                                                             password = createPassword
                                                             pim = createPim
                                                         },
                                                         onStatus = { status = it },
-                                                        onSaved = { createSaver.launch(ShareHelper.sanitizeDisguiseName(createFileName)) }
+                                                        onSaved = {
+                                                            holdLockForPicker()
+                                                            window.decorView.post {
+                                                                holdLockForPicker()
+                                                                createSaver.launch(ShareHelper.sanitizeDisguiseName(createFileName))
+                                                            }
+                                                        }
                                                     )
                                                 },
                                                 enabled = !busy && entropyPercent >= 100,
@@ -886,14 +1100,45 @@ class MainActivity : AppCompatActivity() {
                                             ) { Text("Create volume") }
                                         }
                                     }
-                                    3 -> {
+                                    2 -> {
+                                        if (BuildConfig.ENABLE_SKINS) {
+                                            VcCard {
+                                                Text("Looks (this phone)", style = MaterialTheme.typography.titleMedium)
+                                                VcHint("Desktop, Cyberpunk, Matrix, MAGI, Signal. Same app id — this APK replaces the Desktop-only install. Inspired drawing, not affiliated.")
+                                                VcSkin.entries.forEach { option ->
+                                                    val selected = skin == option
+                                                    if (selected) {
+                                                        Button(
+                                                            onClick = {
+                                                                skin = option
+                                                                saveSkin(option)
+                                                            },
+                                                            enabled = !busy,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .testTag(option.tag),
+                                                            colors = ButtonDefaults.buttonColors(
+                                                                containerColor = colors.primary,
+                                                                contentColor = colors.onPrimary
+                                                            )
+                                                        ) { LookPickerLabel(option, selected = true) }
+                                                    } else {
+                                                        OutlinedButton(
+                                                            onClick = {
+                                                                skin = option
+                                                                saveSkin(option)
+                                                            },
+                                                            enabled = !busy,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .testTag(option.tag)
+                                                        ) { LookPickerLabel(option, selected = false) }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         VcCard {
                                             Text("Volume header", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Uses the container and unlock factors from the Volume tab. Close the volume first — these rewrite the header. Keyfiles and biometrics are mixed into the password; they are not stored in the header.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             SecretField(
                                                 newPassword,
                                                 { newPassword = it },
@@ -1038,7 +1283,11 @@ class MainActivity : AppCompatActivity() {
                                                         onStatus = { status = it },
                                                         onSaved = { file ->
                                                             pendingExportFile = file
-                                                            toolSaver.launch("volume-header.bak")
+                                                            holdLockForPicker()
+                                                            window.decorView.post {
+                                                                holdLockForPicker()
+                                                                toolSaver.launch("volume-header.bak")
+                                                            }
                                                         }
                                                     )
                                                 },
@@ -1046,7 +1295,10 @@ class MainActivity : AppCompatActivity() {
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Backup volume header") }
                                             OutlinedButton(
-                                                onClick = { restoreHeaderPicker.launch(arrayOf("*/*")) },
+                                                onClick = {
+                                                    holdLockForPicker()
+                                                    restoreHeaderPicker.launch(arrayOf("*/*"))
+                                                },
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Restore volume header") }
@@ -1084,11 +1336,6 @@ class MainActivity : AppCompatActivity() {
                                         }
                                         VcCard {
                                             Text("Keyfile generator", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Writes 128 random bytes — same size as the desktop Keyfile Generator default. Share or save the file, then add it as a keyfile.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             Button(
                                                 onClick = {
                                                     val dest = File(cacheDir, "random.key")
@@ -1102,7 +1349,11 @@ class MainActivity : AppCompatActivity() {
                                                             } else {
                                                                 pendingExportFile = dest
                                                                 status = "Generated a 128-byte keyfile. Save a copy, then Add keyfiles."
-                                                                toolSaver.launch("random.key")
+                                                                holdLockForPicker()
+                                                                window.decorView.post {
+                                                                    holdLockForPicker()
+                                                                    toolSaver.launch("random.key")
+                                                                }
                                                             }
                                                         }
                                                     }.start()
@@ -1147,11 +1398,6 @@ class MainActivity : AppCompatActivity() {
                                         }
                                         VcCard {
                                             Text("Wipe cached passwords", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Clears passwords in memory, closes the volume, and wipes the plaintext cache. Same as Lock. Panic wipe also destroys Keystore copies.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             OutlinedButton(
                                                 onClick = {
                                                     lockSession()
@@ -1166,27 +1412,52 @@ class MainActivity : AppCompatActivity() {
                                             ) { Text("Wipe cached passwords") }
                                         }
                                         VcCard {
-                                            Text("Device encryption", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "This app encrypts VeraCrypt container files (any file name). It cannot encrypt the phone's operating system the way VeraCrypt system encryption does on Windows. Android already encrypts the device with your screen lock.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
+                                            Text("Leftover wrap", style = MaterialTheme.typography.titleMedium)
+                                            VcHint("Decrypt a leftover .vcpw.")
+                                            SecretField(
+                                                wrapPassword,
+                                                { wrapPassword = it },
+                                                "Wrap password (never stored)",
+                                                enabled = !busy
                                             )
+                                            OutlinedButton(
+                                                onClick = {
+                                                    if (wrapPassword.isEmpty()) {
+                                                        status = "Enter the wrap password first. It is not stored."
+                                                    } else {
+                                                        wrapHold = wrapPassword
+                                                        holdLockForPicker()
+                                                        unwrapPicker.launch(arrayOf("*/*"))
+                                                    }
+                                                },
+                                                enabled = !busy,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("Decrypt wrap") }
                                         }
                                         VcCard {
-                                            Text("Security tokens", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "PKCS#11 smart cards and hardware tokens are not available on this phone. Export a keyfile from the token on a computer, then Add keyfiles here.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
+                                            Text("Not on this phone", style = MaterialTheme.typography.titleMedium)
+                                            VcHint("Root / jailbreak: this app will not ask for superuser.")
+                                            VcHint("Device encryption: this app encrypts VeraCrypt container files (any file name). It cannot encrypt the phone's operating system. Android already encrypts the device with your screen lock.")
+                                            VcHint("Security tokens: PKCS#11 smart cards are not available here. Export a keyfile on a computer, then Add keyfiles.")
+                                            VcHint("Desktop leftovers: mount as a drive, Select Device / Auto-Mount All Devices, system encryption, rescue disk, traveler disk, volume expander, Quick Format, dynamic sparse containers, favorite volumes, driver password cache, VeraCrypt background task, in-place partition encrypt/decrypt, hotkeys, language files, NTFS/ext, PKCS#11 tokens, and a DocumentsProvider browse of an unlocked volume. Phone volumes are FAT or exFAT file containers. Online help is not fetched while Stay offline. English UI only.")
                                         }
                                         VcCard {
-                                            Text("Desktop leftovers", style = MaterialTheme.typography.titleMedium)
+                                            Text("About / licenses", style = MaterialTheme.typography.titleMedium)
                                             Text(
-                                                "This is the full file-container port. These desktop items stay on a computer: mount as a drive letter (no FUSE here), Select Device / Auto-Mount All Devices, system encryption, rescue disk, traveler disk, volume expander, Quick Format, dynamic sparse containers, favorite volumes, driver password cache, VeraCrypt background task, in-place partition encrypt/decrypt, hotkeys, language files, NTFS/exFAT/ext filesystems, PKCS#11 tokens, and a DocumentsProvider / Files.app browse of an unlocked volume (that was a seizure leak). Online help is not fetched while Stay offline. English UI only.",
-                                                style = MaterialTheme.typography.bodySmall,
+                                                "“We must defend our own privacy if we expect to have any.” — Eric Hughes, A Cypherpunk’s Manifesto (1993)",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
                                                 color = colors.onSurfaceVariant
+                                            )
+                                            VcHint("Portions of this product are based in part on TrueCrypt, freely available at http://www.truecrypt.org/")
+                                            VcHint("VC Port original code is Apache License 2.0. The volume core is VeraCrypt (Apache 2.0 / TrueCrypt License 3.0). You may not call this app VeraCrypt. There is no key escrow and no intelligence or police backdoor. A nation-state implant still wins. Not unbreakable.")
+                                            VcHint("Contact: Shivam Mangesh Pingale — shivampingaledev@proton.me · shivampingaledev@gmail.com")
+                                            VcHint("Footnote: A programming noob still doing a five-year IT engineering degree (graduate summer 2027). Just trying to make something better that he likes to use, without much knowledge. Open to suggestions and advice.")
+                                            VcHint(SourcePin.describeBuild())
+                                            VcHint(
+                                                if (BuildConfig.ENABLE_UPDATE_CHECK)
+                                                    "No ads, analytics, or crash reporters. Passwords stay on this device. GitHub flavor may make one HTTPS request if you tap Check for updates. The app does not install itself. Merge with scripts/sync-upstream.sh and rebuild."
+                                                else
+                                                    "No ads, analytics, crash reporters, or INTERNET permission. Passwords stay on this device. Updates come from F-Droid. The app does not install itself."
                                             )
                                         }
                                     }
@@ -1194,28 +1465,11 @@ class MainActivity : AppCompatActivity() {
                                         VcCard {
                                             Text(
                                                 if (BuildConfig.ENABLE_UPDATE_CHECK)
-                                                    "VeraCrypt-compatible Android client. Offline until you check for updates."
+                                                    "VeraCrypt-compatible. Offline until you check for updates."
                                                 else
-                                                    "VeraCrypt-compatible Android client. F-Droid build: no network."
+                                                    "VeraCrypt-compatible. F-Droid: no network."
                                             )
-                                            Text(
-                                                SourcePin.describeBuild(),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                if (BuildConfig.ENABLE_UPDATE_CHECK)
-                                                    "Tap Check for updates for a 20-second HTTPS window to our version.json, official VeraCrypt's latest GitHub release, and GitHub's status page. No other hosts. No redirects. This app does not download or install APKs, never listens, and never fetches src/. Offline again after."
-                                                else
-                                                    "This APK has no INTERNET permission. F-Droid updates you after the source is tagged. The app never installs itself.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "Stay offline by default. High-threat: screenshots blocked, recents hidden, no backups, no user CAs. Wrap a file, share ciphertext as-is, or panic wipe. Biometrics can be compelled — prefer a long password + keyfile, not Remember. This is not unbreakable.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
+                                            VcHint("Stay offline by default. Biometrics can be compelled — prefer a long password + keyfile. This is not unbreakable.")
                                             if (BuildConfig.ENABLE_UPDATE_CHECK) {
                                                 OutlinedButton(
                                                     onClick = {
@@ -1233,33 +1487,26 @@ class MainActivity : AppCompatActivity() {
                                                 ) { Text("Check for updates") }
                                             }
                                             Button(
-                                                onClick = { picker.launch(arrayOf("*/*")) },
+                                                onClick = {
+                                                    holdLockForPicker()
+                                                    picker.launch(arrayOf("*/*"))
+                                                },
                                                 enabled = !busy,
                                                 modifier = Modifier.fillMaxWidth()
                                             ) { Text("Choose container") }
-                                            Text(
-                                                "USB/OTG: pick any file on the stick through Android's file picker — .hc, .jpg, .png, .safetensors, or no extension. This app cannot mount a raw USB disk or auto-mount /dev block devices without root.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            OutlinedTextField(
-                                                path,
-                                                { path = it },
-                                                label = { Text("Container path") },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                enabled = !busy,
-                                                singleLine = true
-                                            )
-                                        }
-                                        VcCard {
-                                            Text("Share encrypted file", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Sends the encrypted file as-is, including disguised names (.jpg, .png, .safetensors). No password, no decrypt. WhatsApp, Gmail, Drive, and the rest of the share sheet.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
+                                            if (containerLabel.isNotEmpty()) {
+                                                Text("Selected: $containerLabel", style = MaterialTheme.typography.bodyMedium)
+                                                val shownPath = path.takeIf { it.isNotEmpty() && !nativePathIsInternal(it) }
+                                                if (shownPath != null) {
+                                                    Text(shownPath, style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                            VcHint("USB/OTG: a file on the stick, not the whole disk.")
                                             Button(
-                                                onClick = { shareEncPicker.launch(arrayOf("*/*")) },
+                                                onClick = {
+                                                    holdLockForPicker()
+                                                    shareEncPicker.launch(arrayOf("*/*"))
+                                                },
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Icon(Icons.Filled.Share, contentDescription = null)
@@ -1276,15 +1523,17 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         }
                                         VcCard {
-                                            Text("Unlock factors", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "Combine any of: fingerprint / face / screen lock, text password, keyfiles, and PIM. The volume itself is a normal VeraCrypt file — same mix a computer uses. Any file name works; the header is detected only if those credentials are correct.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
+                                            Text("Unlock", style = MaterialTheme.typography.titleMedium)
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Checkbox(useTextPassword, { useTextPassword = it }, enabled = !busy)
-                                                Text("Text password")
+                                                Checkbox(
+                                                    useTextPassword,
+                                                    {
+                                                        if (useBiometric) useTextPassword = true
+                                                        else useTextPassword = it
+                                                    },
+                                                    enabled = !busy && !useBiometric
+                                                )
+                                                Text("Text password (primary)")
                                             }
                                             if (useTextPassword) {
                                                 SecretField(
@@ -1325,38 +1574,18 @@ class MainActivity : AppCompatActivity() {
                                                 Checkbox(useBackupHeader, { useBackupHeader = it }, enabled = !busy)
                                                 Text("Use backup header")
                                             }
-                                            Text(
-                                                "If the first header is damaged, open using the copy stored at the end of the container.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Checkbox(readOnlyOpen, { readOnlyOpen = it }, enabled = !busy)
                                                 Text("Read-only")
                                             }
-                                            Text(
-                                                "Same as desktop Mount Options → Read-only. Import, delete, rename, and wipe free space are refused.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Checkbox(trueCryptMode, { trueCryptMode = it }, enabled = !busy)
                                                 Text("TrueCrypt Mode")
                                             }
-                                            Text(
-                                                "TrueCrypt 6/7 volumes have no PIM — this forces PIM 0. Creating new TrueCrypt volumes is not offered; create a VeraCrypt volume.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Checkbox(protectHidden, { protectHidden = it }, enabled = !busy)
                                                 Text("Protect hidden volume against damage caused by writing to outer volume")
                                             }
-                                            Text(
-                                                "Same as desktop Mount Options. Enter the nested volume password. Writes that would overwrite the nested volume are refused. Do not enable this if someone is compelling you to open the outer volume — that would show that a nested volume exists. There is no open-time hidden checkbox; opening still uses whichever password you type.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                             if (protectHidden) {
                                                 SecretField(
                                                     hiddenProtectPassword,
@@ -1375,7 +1604,7 @@ class MainActivity : AppCompatActivity() {
                                                 )
                                             }
                                             TextButton(onClick = { moreFactors = !moreFactors }) {
-                                                Text(if (moreFactors) "Hide extra factors" else "More factors (PIM, keyfiles, biometrics)")
+                                                Text(if (moreFactors) "Hide extra factors" else "More factors")
                                             }
                                             if (moreFactors) {
                                                 OutlinedTextField(
@@ -1401,27 +1630,22 @@ class MainActivity : AppCompatActivity() {
                                                     }
                                                 }
                                                 OutlinedButton(
-                                                    onClick = { keyfilePicker.launch(arrayOf("*/*")) },
+                                                    onClick = {
+                                                        holdLockForPicker()
+                                                        keyfilePicker.launch(arrayOf("*/*"))
+                                                    },
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) { Text("Add keyfiles") }
                                                 if (vault.isAvailable()) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         Checkbox(useBiometric, {
                                                             useBiometric = it
+                                                            if (it) useTextPassword = true
                                                             if (!it) bioSecret = null
                                                         }, enabled = !busy)
                                                         Text("Fingerprint, face, or screen lock")
                                                     }
-                                                    Text(
-                                                        "Do not use biometrics as the only factor in a danger-state. Fingerprints can be compelled. Mix a password and a keyfile you do not keep on this phone.",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = colors.onSurfaceVariant
-                                                    )
-                                                    Text(
-                                                        "Stored in the Android Keystore (StrongBox when present). Mixed as a VeraCrypt keyfile so the same file opens on a PC or Mac.",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = colors.onSurfaceVariant
-                                                    )
+                                                    VcHint("Extra keyfile. Can be compelled.")
                                                     Text(
                                                         bioSecret?.let { "Biometric password ready (${it.size} bytes)." }
                                                             ?: if (path.isNotEmpty() && vault.hasFactors(path))
@@ -1456,9 +1680,12 @@ class MainActivity : AppCompatActivity() {
                                                             }
                                                         },
                                                         modifier = Modifier.fillMaxWidth()
-                                                    ) { Text("Create") }
+                                                    ) { Text("Create phone-unlock keyfile") }
                                                     OutlinedButton(
-                                                        onClick = { importBioPicker.launch(arrayOf("*/*")) },
+                                                        onClick = {
+                                                            holdLockForPicker()
+                                                            importBioPicker.launch(arrayOf("*/*"))
+                                                        },
                                                         modifier = Modifier.fillMaxWidth()
                                                     ) { Text("Import keyfile") }
                                                     OutlinedButton(
@@ -1512,11 +1739,7 @@ class MainActivity : AppCompatActivity() {
                                                         )
                                                         Text("Remember this combination")
                                                     }
-                                                    Text(
-                                                        "Off by default. Type REMEMBER to store factors this session. Compelled biometrics can still open a remembered set.",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = colors.onSurfaceVariant
-                                                    )
+                                                    VcHint("Off by default. Type REMEMBER to store this session.")
                                                     if (path.isNotEmpty() && vault.hasFactors(path)) {
                                                         OutlinedButton(
                                                             onClick = {
@@ -1528,42 +1751,6 @@ class MainActivity : AppCompatActivity() {
                                                     }
                                                 }
                                             }
-                                        }
-                                        VcCard {
-                                            Text("About / licenses", style = MaterialTheme.typography.titleMedium)
-                                            Text(
-                                                "“We must defend our own privacy if we expect to have any.” — Eric Hughes, A Cypherpunk’s Manifesto (1993)",
-                                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "Portions of this product are based in part on TrueCrypt, freely available at http://www.truecrypt.org/",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "VC Port original code is Apache License 2.0. The volume core is VeraCrypt (Apache 2.0 / TrueCrypt License 3.0). You may not call this app VeraCrypt. There is no key escrow and no intelligence or police backdoor. A nation-state implant still wins. Not unbreakable.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "Contact: Shivam Mangesh Pingale — shivampingaledev@proton.me · shivampingaledev@gmail.com",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                "Footnote: A programming noob still doing a five-year IT engineering degree (graduate summer 2027). Just trying to make something better that he likes to use, without much knowledge. Open to suggestions and advice.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
-                                            Text(
-                                                if (BuildConfig.ENABLE_UPDATE_CHECK)
-                                                    "No ads, analytics, or crash reporters. Passwords stay on this device. GitHub flavor may make one HTTPS request if you tap Check for updates. Source updates become a new app only after a rebuild."
-                                                else
-                                                    "No ads, analytics, crash reporters, or INTERNET permission. Passwords stay on this device. Updates come from F-Droid.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.onSurfaceVariant
-                                            )
                                         }
                                     }
                                 }
@@ -1663,38 +1850,82 @@ class MainActivity : AppCompatActivity() {
         handleIncoming(intent)
     }
 
+    override fun onDestroy() {
+        releaseContainerPfd()
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        window.decorView.post {
+            if (!busyState.value) {
+                suppressLock = false
+            }
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         if (suppressLock) {
-            suppressLock = false
             return
         }
         lockSession()
     }
 
-    private fun lockSession() {
+    private fun wipeBytes(value: ByteArray?) {
+        value?.fill(0)
+    }
+
+    private fun closeMountedVolume() {
         val handle = handleState.value
         if (NativeBridge.isOpen(handle)) NativeBridge.closeVolume(handle)
         handleState.value = 0L
         entriesState.value = emptyList()
         dirPathState.value = ""
+        listTruncatedState.value = false
+    }
+
+    private fun wipeRamSecrets() {
+        wipeBytes(bioSecretState.value)
+        bioSecretState.value = null
+        useBiometricState.value = false
+        createPasswordState.value = ""
+        createHiddenPasswordState.value = ""
+        hiddenProtectPasswordState.value = ""
+        newPasswordState.value = ""
         passwordState.value = ""
         wrapPasswordState.value = ""
+        wrapHold = ""
+        pimState.value = "0"
+        createPimState.value = "0"
+        createHiddenPimState.value = "0"
+        newPimState.value = "0"
+        hiddenProtectPimState.value = "0"
+        keyfileUrisState.value = emptyList()
+        hiddenKeyfileUrisState.value = emptyList()
+        basketHashesState.value = emptyMap()
+        lastPlainFilesState.value.forEach { Hardening.wipeFile(it) }
         lastPlainFilesState.value = emptyList()
+    }
+
+    private fun lockSession() {
+        closeMountedVolume()
+        wipeRamSecrets()
         endWork()
         Hardening.wipeSessionFiles(this)
         SensitiveClipboard.forget(this)
         if (!statusState.value.startsWith("Panic")) {
             statusState.value =
-                "Locked. Passwords and plaintext cache wiped. Panic wipe also destroys Keystore and ciphertext copies."
+                "Dismounted. Passwords, keyfiles in memory, and decrypted copies wiped. Ciphertext stays. Panic wipe also destroys Keystore copies."
         }
     }
 
     private fun panicWipe() {
-        val handle = handleState.value
-        if (NativeBridge.isOpen(handle)) NativeBridge.closeVolume(handle)
-        handleState.value = 0L
+        closeMountedVolume()
+        wipeRamSecrets()
+        releaseContainerPfd()
         Hardening.panic(this)
+        basketUrisState.value = emptyList()
     }
 
     private fun beginWork(title: String = "") {
@@ -1720,6 +1951,87 @@ class MainActivity : AppCompatActivity() {
             } ?: -1L
         } catch (_: Exception) {
             -1L
+        }
+    }
+
+    private fun volumeBytesForBasket(askedBytes: Long, uris: List<Uri>, hiddenBytes: Long): Long {
+        var payload = 0L
+        for (uri in uris) {
+            val n = uriLength(uri)
+            payload += if (n > 0) n else 1L shl 20
+        }
+        val overhead = if (uris.isEmpty()) 0L else 5L shl 20
+        val need = payload + overhead + hiddenBytes
+        var bytes = maxOf(askedBytes, need, SizeUnits.MIN_VOLUME)
+        if (hiddenBytes > 0) bytes = maxOf(bytes, hiddenBytes * 2 + SizeUnits.MIN_VOLUME)
+        return bytes
+    }
+
+    private fun basketSummary(uris: List<Uri>): String {
+        var bytes = 0L
+        var unknown = false
+        for (uri in uris) {
+            val n = uriLength(uri)
+            if (n > 0) bytes += n else unknown = true
+        }
+        val size = if (unknown && bytes == 0L) "size unknown" else SizeUnits.formatBytes(bytes)
+        val files = if (uris.size == 1) "1 file" else "${uris.size} files"
+        val need = volumeBytesForBasket(SizeUnits.MIN_VOLUME, uris, 0)
+        return "$files, about $size. Volume will be at least ${SizeUnits.formatBytes(need)}."
+    }
+
+    private fun uniqueDestName(raw: String, used: MutableSet<String>): String {
+        var name = ShareHelper.safeName(raw).ifEmpty { "file" }
+        if (name !in used) {
+            used += name
+            return name
+        }
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var n = 2
+        while (true) {
+            val cand = "$stem-$n$ext"
+            if (cand !in used) {
+                used += cand
+                return cand
+            }
+            n++
+        }
+    }
+
+    private fun importUriIntoVolume(handle: Long, uri: Uri, usedNames: MutableSet<String>): String? {
+        val display = ShareHelper.displayName(this, uri) ?: "file"
+        val name = uniqueDestName(display, usedNames)
+        var cache: File? = null
+        return try {
+            var rc: Int? = null
+            try {
+                contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    if (pfd.statSize >= 0L) {
+                        rc = NativeBridge.importFile(handle, "/", "/proc/self/fd/${pfd.fd}", name)
+                    }
+                }
+            } catch (_: Exception) {
+                rc = null
+            }
+            if (rc == null || rc == -1) {
+                val outFile = File(cacheDir, "basket-${System.nanoTime()}-$name")
+                cache = outFile
+                val input = KeyfileIo.openReadable(this, uri)
+                    ?: return "Could not read $display. Pick it again from Files."
+                input.use { src ->
+                    outFile.outputStream().use { dest ->
+                        copyStreamProgress(src, dest, uriLength(uri), "Copying $name into volume")
+                    }
+                }
+                rc = NativeBridge.importFile(handle, "/", outFile.absolutePath, name)
+            }
+            if (rc == 0) null else importErrorMessage(name, rc ?: -1, handle)
+        } catch (_: Exception) {
+            "Could not copy $display into the volume."
+        } finally {
+            cache?.let { KeyfileIo.wipe(it) }
         }
     }
 
@@ -1749,7 +2061,7 @@ class MainActivity : AppCompatActivity() {
         vault: BiometricVault,
         password: String,
         pimText: String,
-        sizeMbText: String,
+        sizeBytes: Long,
         cipher: String,
         kdf: String,
         keyfileUris: List<Uri>,
@@ -1759,19 +2071,27 @@ class MainActivity : AppCompatActivity() {
         hidden: Boolean,
         hiddenPassword: String,
         hiddenPimText: String,
-        hiddenSizeMbText: String,
+        hiddenSizeBytes: Long,
+        hiddenKeyfileUris: List<Uri> = emptyList(),
         fileName: String,
+        filesystem: String = "FAT",
         entropyPercent: Int,
+        basketUris: List<Uri> = emptyList(),
+        phoneUnlockConfirmed: Boolean = false,
         onPath: (String) -> Unit,
         onStatus: (String) -> Unit,
         onSaved: () -> Unit
     ) {
         val hasBio = useBiometric && bioSecret != null && bioSecret.isNotEmpty()
-        if (password.isEmpty() && !hasBio && keyfileUris.isEmpty()) {
-            onStatus("Choose at least one factor: text password, phone unlock keyfile, or a keyfile.")
+        if (useBiometric && password.isEmpty()) {
+            onStatus("Type the volume password first.")
             return
         }
-        if (password.isNotEmpty() && password.length < 16 && !hasBio && keyfileUris.isEmpty()) {
+        if (password.isEmpty() && keyfileUris.isEmpty()) {
+            onStatus("Type a volume password, or add a keyfile.")
+            return
+        }
+        if (password.isNotEmpty() && password.length < 16 && keyfileUris.isEmpty()) {
             onStatus("Use Generate strong password, or type at least 16 characters. Nothing is saved.")
             return
         }
@@ -1783,35 +2103,83 @@ class MainActivity : AppCompatActivity() {
             onStatus("Move your finger in the blank area until the randomness bar is full.")
             return
         }
-        val mb = sizeMbText.toIntOrNull() ?: 0
-        if (mb < 2 || mb > 512) {
-            onStatus("Size must be 2–512 MiB.")
-            return
-        }
-        var hiddenBytes = 0L
+        var nestedBytes = 0L
         if (hidden) {
-            if (mb < 8) {
-                onStatus("Nested volume needs an outer size of at least 8 MiB.")
-                return
-            }
-            if (hiddenPassword.length < 16) {
+            if (hiddenPassword.length < 16 && hiddenKeyfileUris.isEmpty()) {
                 onStatus("Nested volume password must be at least 16 characters, and different from the outer password.")
                 return
             }
-            if (hiddenPassword == password) {
+            if (hiddenPassword.isNotEmpty() && hiddenPassword == password) {
                 onStatus("Use a different password for the nested volume.")
                 return
             }
-            val hiddenMb = hiddenSizeMbText.toIntOrNull() ?: 0
-            if (hiddenMb < 2 || hiddenMb * 2 >= mb) {
+            nestedBytes = hiddenSizeBytes
+            if (nestedBytes < SizeUnits.MIN_VOLUME) {
                 onStatus("Nested size must be at least 2 MiB and less than half the outer size, so the outer volume has room.")
                 return
             }
-            hiddenBytes = hiddenMb * 1024L * 1024L
         }
-        beginWork("Creating $mb MiB $cipher / $kdf volume…")
+        if (basketUris.isEmpty() && (sizeBytes < SizeUnits.MIN_VOLUME || sizeBytes > SizeUnits.MAX_VOLUME)) {
+            onStatus("Size must be at least 2 MiB and at most 64 GiB on this phone.")
+            return
+        }
+        val bytes = volumeBytesForBasket(sizeBytes, basketUris, nestedBytes)
+        if (bytes > SizeUnits.MAX_VOLUME) {
+            onStatus("Basket is too large for a 64 GiB phone volume. Remove files.")
+            return
+        }
+        if (bytes > cacheDir.usableSpace - (32L shl 20)) {
+            onStatus("Not enough free space on this phone for ${SizeUnits.formatBytes(bytes)}.")
+            return
+        }
+        if (hidden) {
+            if (bytes < 8L * 1024L * 1024L) {
+                onStatus("Nested volume needs an outer size of at least 8 MiB.")
+                return
+            }
+            if (nestedBytes * 2 >= bytes) {
+                onStatus("Nested size must be at least 2 MiB and less than half the outer size, so the outer volume has room.")
+                return
+            }
+        }
+        if (useBiometric && !phoneUnlockConfirmed) {
+            vault.confirm(this, "Confirm fingerprint, face, or screen lock to create the volume") { ok ->
+                if (!ok) {
+                    onStatus("Phone unlock cancelled.")
+                    return@confirm
+                }
+                createContainer(
+                    vault = vault,
+                    password = password,
+                    pimText = pimText,
+                    sizeBytes = sizeBytes,
+                    cipher = cipher,
+                    kdf = kdf,
+                    keyfileUris = keyfileUris,
+                    useBiometric = useBiometric,
+                    bioSecret = bioSecret,
+                    rememberBio = rememberBio,
+                    hidden = hidden,
+                    hiddenPassword = hiddenPassword,
+                    hiddenPimText = hiddenPimText,
+                    hiddenSizeBytes = hiddenSizeBytes,
+                    hiddenKeyfileUris = hiddenKeyfileUris,
+                    fileName = fileName,
+                    filesystem = filesystem,
+                    entropyPercent = entropyPercent,
+                    basketUris = basketUris,
+                    phoneUnlockConfirmed = true,
+                    onPath = onPath,
+                    onStatus = onStatus,
+                    onSaved = onSaved
+                )
+            }
+            return
+        }
+        beginWork("Creating ${SizeUnits.formatBytes(bytes)} $cipher / $kdf volume…")
         Thread {
             val temps = mutableListOf<File>()
+            val hiddenTemps = mutableListOf<File>()
             try {
                 if (hasBio && bioSecret != null) {
                     temps.add(KeyfileIo.writeSecret(this, bioSecret))
@@ -1821,33 +2189,110 @@ class MainActivity : AppCompatActivity() {
                     if (copied == null) {
                         runOnUiThread {
                             endWork()
-                            onStatus("Could not read a keyfile.")
+                            val name = ShareHelper.displayName(this, uri) ?: "keyfile"
+                            onStatus("Could not read $name. Pick it again, or open it from the Files app with VC Port. Any file can be a keyfile.")
                         }
                         return@Thread
                     }
                     temps.add(copied)
                 }
+                if (hidden) {
+                    for (uri in hiddenKeyfileUris) {
+                        val copied = KeyfileIo.copyUri(this, uri)
+                        if (copied == null) {
+                            runOnUiThread {
+                                endWork()
+                                val name = ShareHelper.displayName(this, uri) ?: "keyfile"
+                                onStatus("Could not read nested keyfile $name.")
+                            }
+                            return@Thread
+                        }
+                        hiddenTemps.add(copied)
+                    }
+                }
                 val dest = File(cacheDir, ShareHelper.sanitizeDisguiseName(fileName))
+                var fs = if (filesystem.equals("exFAT", ignoreCase = true)) "exFAT" else "FAT"
+                if (bytes >= 4L * 1024L * 1024L * 1024L) fs = "exFAT"
+                for (uri in basketUris) {
+                    val n = uriLength(uri)
+                    if (n > SizeUnits.FAT_MAX_FILE) fs = "exFAT"
+                }
                 val rc = NativeBridge.createVolume(
                     dest.absolutePath,
                     password,
                     pimText.toIntOrNull() ?: 0,
-                    mb * 1024L * 1024L,
+                    bytes,
                     cipher,
                     kdf,
                     temps.map { it.absolutePath }.toTypedArray(),
                     if (hidden) hiddenPassword else "",
                     hiddenPimText.toIntOrNull() ?: 0,
-                    hiddenBytes,
-                    emptyArray()
+                    if (hidden) nestedBytes else 0L,
+                    hiddenTemps.map { it.absolutePath }.toTypedArray(),
+                    fs
                 )
+                var packed = 0
+                var packFail: String? = null
+                if (rc == 0 && basketUris.isNotEmpty()) {
+                    NativeBridge.setProgress(0, "Copying basket into volume")
+                    val handle = NativeBridge.openVolume(
+                        dest.absolutePath,
+                        password,
+                        pimText.toIntOrNull() ?: 0,
+                        false,
+                        temps.map { it.absolutePath }.toTypedArray(),
+                        false,
+                        false,
+                        "",
+                        0
+                    )
+                    if (!NativeBridge.isOpen(handle)) {
+                        packFail = "Created the volume, but could not open it to copy the basket."
+                    } else {
+                        val used = mutableSetOf<String>()
+                        for ((index, uri) in basketUris.withIndex()) {
+                            NativeBridge.setProgress(
+                                (index * 100) / basketUris.size,
+                                "Copying into volume"
+                            )
+                            val err = importUriIntoVolume(handle, uri, used)
+                            if (err != null) {
+                                packFail = err
+                                break
+                            }
+                            packed++
+                        }
+                        val proof = File(cacheDir, "BASKET.sha256")
+                        proof.writeText(
+                            basketUris.mapNotNull { uri ->
+                                val name = ShareHelper.displayName(this, uri) ?: "file"
+                                val hex = basketHashesState.value[uri.toString()]
+                                    ?: BasketHash.sha256(this, uri)
+                                hex?.let { "$it  $name" }
+                            }.joinToString("\n") + "\n"
+                        )
+                        NativeBridge.importFile(handle, "/", proof.absolutePath, "BASKET.sha256")
+                        Hardening.wipeFile(proof)
+                        NativeBridge.closeVolume(handle)
+                    }
+                }
                 runOnUiThread {
                     endWork()
                     if (rc != 0) {
                         onStatus(createErrorMessage(rc))
                     } else {
                         onPath(dest.absolutePath)
-                        var msg = "Created $mb MiB $cipher / $kdf FAT volume as ${dest.name} (standard VeraCrypt file; the name is only a disguise). Save a copy, then Open volume or Share encrypted. Same password, PIM, and keyfiles open it on a PC, Mac, or another phone — the extension is ignored."
+                        var msg = "Created ${SizeUnits.formatBytes(bytes)} $cipher / $kdf $fs volume as ${dest.name} (standard VeraCrypt file; the name is only a disguise). Save a copy, then Open volume or Share encrypted. Same password, PIM, and keyfiles open it on a PC, Mac, or another phone — the extension is ignored."
+                        if (packed > 0) {
+                            msg += " Copied $packed file(s) from the basket into the volume. SHA-256 proof is BASKET.sha256 inside the volume."
+                            if (packFail == null) {
+                                basketUrisState.value = emptyList()
+                                basketHashesState.value = emptyMap()
+                            }
+                        }
+                        if (packFail != null) {
+                            msg += " $packFail"
+                        }
                         if (hidden) {
                             msg += " Nested volume is inside; open it with the nested password. Do not fill the outer volume."
                         }
@@ -1881,6 +2326,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } finally {
                 temps.forEach { KeyfileIo.wipe(it) }
+                hiddenTemps.forEach { KeyfileIo.wipe(it) }
             }
         }.start()
     }
@@ -1921,7 +2367,7 @@ class MainActivity : AppCompatActivity() {
             val copied = KeyfileIo.copyUri(this, uri)
             if (copied == null) {
                 temps.forEach { KeyfileIo.wipe(it) }
-                return Pair(mutableListOf(), "Could not read a keyfile.")
+                return Pair(mutableListOf(), "Could not read a keyfile. Pick it again, or open it from the Files app with VC Port. Any file can be a keyfile.")
             }
             temps.add(copied)
         }
@@ -2143,10 +2589,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun copyContainerAsync(uri: Uri, onDone: (String) -> Unit) {
-        beginWork("Copying container into app cache…")
+        beginWork("Opening container…")
         Thread {
             val copied = try {
-                copyToCache(uri)
+                bindContainer(uri)
             } catch (_: Exception) {
                 ""
             }
@@ -2155,6 +2601,48 @@ class MainActivity : AppCompatActivity() {
                 onDone(copied)
             }
         }.start()
+    }
+
+    private fun releaseContainerPfd() {
+        try {
+            containerPfd?.close()
+        } catch (_: Exception) {
+        }
+        containerPfd = null
+    }
+
+    private fun nativePathIsInternal(nativePath: String): Boolean {
+        return nativePath.startsWith("/proc/self/fd/") ||
+            nativePath.startsWith(cacheDir.absolutePath) ||
+            nativePath.startsWith(filesDir.absolutePath)
+    }
+
+    private fun bindContainer(uri: Uri): String {
+        releaseContainerPfd()
+        if (uri.scheme == "file") {
+            val p = uri.path
+            if (!p.isNullOrEmpty() && File(p).canRead()) return p
+        }
+        val writable = bindContainerFd(uri, "rw")
+        if (writable.isNotEmpty()) return writable
+        val copied = copyToCache(uri)
+        if (copied.isNotEmpty()) return copied
+        return bindContainerFd(uri, "r")
+    }
+
+    private fun bindContainerFd(uri: Uri, mode: String): String {
+        return try {
+            val pfd = contentResolver.openFileDescriptor(uri, mode)
+            if (pfd != null && pfd.statSize >= 0L) {
+                containerPfd = pfd
+                "/proc/self/fd/${pfd.fd}"
+            } else {
+                pfd?.close()
+                ""
+            }
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     private fun openVolumeWithFactors(
@@ -2173,6 +2661,7 @@ class MainActivity : AppCompatActivity() {
         protectHidden: Boolean,
         hiddenPassword: String,
         hiddenPimText: String,
+        phoneUnlockConfirmed: Boolean = false,
         currentHandle: Long,
         onHandle: (Long) -> Unit,
         onEntries: (List<VaultEntry>) -> Unit,
@@ -2183,12 +2672,92 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val text = if (useTextPassword) password else ""
-        if (text.isEmpty() && !useBiometric && keyfileUris.isEmpty()) {
-            onStatus("Choose at least one factor: text password, biometric password, or a keyfile.")
+        if (useBiometric && text.isEmpty()) {
+            onStatus("Type the volume password first.")
+            return
+        }
+        if (text.isEmpty() && keyfileUris.isEmpty()) {
+            onStatus("Type the volume password, or add a keyfile.")
+            return
+        }
+        if (useBiometric && (bioSecret == null || bioSecret.isEmpty()) && !phoneUnlockConfirmed) {
+            if (vault.hasFactors(path)) {
+                vault.load(this, path) { stored ->
+                    if (stored == null) {
+                        onStatus("Phone unlock cancelled.")
+                        return@load
+                    }
+                    passwordState.value = stored.password
+                    pimState.value = stored.pim.toString()
+                    useBiometricState.value = stored.hasBiometric() || useBiometric
+                    bioSecretState.value = stored.biometricKey
+                    if (stored.keyfileUris.isNotEmpty()) {
+                        keyfileUrisState.value = stored.keyfileUris.mapNotNull { Uri.parse(it) }
+                    }
+                    openVolumeWithFactors(
+                        vault = vault,
+                        path = path,
+                        password = stored.password.ifEmpty { password },
+                        pimText = stored.pim.toString(),
+                        useTextPassword = stored.password.isNotEmpty() || useTextPassword,
+                        useBiometric = stored.hasBiometric() || useBiometric,
+                        bioSecret = stored.biometricKey ?: bioSecret,
+                        keyfileUris = if (stored.keyfileUris.isNotEmpty())
+                            stored.keyfileUris.mapNotNull { Uri.parse(it) }
+                        else
+                            keyfileUris,
+                        rememberBio = false,
+                        useBackupHeader = useBackupHeader,
+                        readOnly = readOnly,
+                        trueCryptMode = trueCryptMode,
+                        protectHidden = protectHidden,
+                        hiddenPassword = hiddenPassword,
+                        hiddenPimText = hiddenPimText,
+                        phoneUnlockConfirmed = true,
+                        currentHandle = currentHandle,
+                        onHandle = onHandle,
+                        onEntries = onEntries,
+                        onStatus = onStatus
+                    )
+                }
+                return
+            }
+            onStatus("Create or import a biometric password, or tap Unlock with fingerprint, face, or screen lock.")
             return
         }
         if (useBiometric && (bioSecret == null || bioSecret.isEmpty())) {
-            onStatus("Create or import a biometric password, or tap Unlock with biometrics to load a saved one.")
+            onStatus("Create or import a biometric password, or tap Unlock with fingerprint, face, or screen lock.")
+            return
+        }
+        if (useBiometric && !phoneUnlockConfirmed) {
+            vault.confirm(this, "Confirm fingerprint, face, or screen lock to open the volume") { ok ->
+                if (!ok) {
+                    onStatus("Phone unlock cancelled.")
+                    return@confirm
+                }
+                openVolumeWithFactors(
+                    vault = vault,
+                    path = path,
+                    password = password,
+                    pimText = pimText,
+                    useTextPassword = useTextPassword,
+                    useBiometric = useBiometric,
+                    bioSecret = bioSecret,
+                    keyfileUris = keyfileUris,
+                    rememberBio = rememberBio,
+                    useBackupHeader = useBackupHeader,
+                    readOnly = readOnly,
+                    trueCryptMode = trueCryptMode,
+                    protectHidden = protectHidden,
+                    hiddenPassword = hiddenPassword,
+                    hiddenPimText = hiddenPimText,
+                    phoneUnlockConfirmed = true,
+                    currentHandle = currentHandle,
+                    onHandle = onHandle,
+                    onEntries = onEntries,
+                    onStatus = onStatus
+                )
+            }
             return
         }
         beginWork("Opening volume…")
@@ -2203,7 +2772,8 @@ class MainActivity : AppCompatActivity() {
                     if (copied == null) {
                         runOnUiThread {
                             endWork()
-                            onStatus("Could not read a keyfile.")
+                            val name = ShareHelper.displayName(this, uri) ?: "keyfile"
+                            onStatus("Could not read $name. Pick it again, or open it from the Files app with VC Port. Any file can be a keyfile.")
                         }
                         return@Thread
                     }
@@ -2249,7 +2819,7 @@ class MainActivity : AppCompatActivity() {
                         onEntries(files)
                         dirPathState.value = ""
                         listTruncatedState.value = truncated
-                        var msg = "Mounted in this app. Size $volumeBytes bytes. Tap a folder to open it, or a file to share the decrypted copy."
+                        var msg = "Mounted in this app. Size $volumeBytes bytes. Tap a folder to open it, or a file to share the decrypted copy. Copy to device puts a file where Files can open it."
                         if (protectHidden) msg = "Hidden volume is being protected against damage. $msg"
                         if (truncated) msg += " Listing truncated at ${NativeBridge.LIST_UI_MAX} entries. Tap Load more."
                         onStatus(msg)
@@ -2312,6 +2882,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             tabState.intValue = 0
             pathState.value = copyIncomingAsContainer(first)
+            containerLabelState.value = first.name
             statusState.value = "Received ${first.name}. Any extension can be a volume. Open with the correct password, PIM, and keyfiles, or share as-is."
         }
     }
@@ -2340,7 +2911,12 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun wrapSelectedFile(uri: Uri, password: String, onStatus: (String) -> Unit) {
+    private fun wrapSelectedFile(
+        uri: Uri,
+        password: String,
+        onStatus: (String) -> Unit,
+        onSaved: (File) -> Unit
+    ) {
         if (password.length < 16) {
             onStatus("Use Generate strong password, or type at least 16 characters. Nothing is saved.")
             return
@@ -2351,16 +2927,18 @@ class MainActivity : AppCompatActivity() {
             val plain = File(cacheDir, "wrap-in-${ShareHelper.safeName(name)}")
             val wrapped = File(ShareHelper.shareDir(this), ShareHelper.safeName(name) + ".vcpw")
             try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    plain.outputStream().use { output ->
-                        copyStreamProgress(input, output, uriLength(uri), "Reading file")
-                    }
-                } ?: run {
+                val input = KeyfileIo.openReadable(this, uri)
+                if (input == null) {
                     runOnUiThread {
                         endWork()
-                        onStatus("Could not read the file.")
+                        onStatus("Could not read $name. Pick it again, or open it from the Files app with VC Port.")
                     }
                     return@Thread
+                }
+                input.use { stream ->
+                    plain.outputStream().use { output ->
+                        copyStreamProgress(stream, output, uriLength(uri), "Reading file")
+                    }
                 }
                 val rc = NativeBridge.wrapFile(plain.absolutePath, wrapped.absolutePath, password, name)
                 KeyfileIo.wipe(plain)
@@ -2369,9 +2947,8 @@ class MainActivity : AppCompatActivity() {
                     if (rc != 0 || !wrapped.exists()) {
                         onStatus("Wrap failed (code $rc).")
                     } else {
-                        onStatus("Wrapped $name. Share the .vcpw file. The password was not saved.")
-                        beginShare()
-                        ShareHelper.shareFiles(this, listOf(wrapped), "Share wrapped file")
+                        onStatus("Wrapped $name. Save the .vcpw copy, then share it from the bar. The password was not saved.")
+                        onSaved(wrapped)
                     }
                 }
             } catch (e: Exception) {
@@ -2384,7 +2961,12 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun unwrapSelectedFile(uri: Uri, password: String, onStatus: (String) -> Unit) {
+    private fun unwrapSelectedFile(
+        uri: Uri,
+        password: String,
+        onStatus: (String) -> Unit,
+        onSaved: (File) -> Unit
+    ) {
         if (password.isEmpty()) {
             onStatus("Enter the wrap password first. It is not stored.")
             return
@@ -2395,16 +2977,18 @@ class MainActivity : AppCompatActivity() {
             val wrapped = File(cacheDir, ShareHelper.safeName(name))
             val destDir = File(cacheDir, "unwrapped").apply { mkdirs() }
             try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    wrapped.outputStream().use { output ->
-                        copyStreamProgress(input, output, uriLength(uri), "Reading wrap")
-                    }
-                } ?: run {
+                val input = KeyfileIo.openReadable(this, uri)
+                if (input == null) {
                     runOnUiThread {
                         endWork()
-                        onStatus("Could not read the wrap.")
+                        onStatus("Could not read $name. Pick it again, or open it from the Files app with VC Port.")
                     }
                     return@Thread
+                }
+                input.use { stream ->
+                    wrapped.outputStream().use { output ->
+                        copyStreamProgress(stream, output, uriLength(uri), "Reading wrap")
+                    }
                 }
                 val outPath = NativeBridge.unwrapFile(wrapped.absolutePath, destDir.absolutePath, password)
                 wrapped.delete()
@@ -2415,9 +2999,8 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         val file = File(outPath)
                         lastPlainFilesState.value = listOf(file)
-                        onStatus("Unwrapped ${file.name}. Password was not saved.")
-                        beginShare()
-                        ShareHelper.shareFiles(this, listOf(file), "Share unwrapped file")
+                        onStatus("Unwrapped ${file.name}. Save a copy. The password was not saved.")
+                        onSaved(file)
                     }
                 }
             } catch (e: Exception) {
@@ -2584,7 +3167,7 @@ class MainActivity : AppCompatActivity() {
     private fun openErrorMessage(code: Long): String {
         return when (code.toInt()) {
             -2 -> "Wrong password, PIM, or keyfile mix."
-            -6 -> "This container uses exFAT or another filesystem VC Port does not open. FAT only."
+            -6 -> "This container uses NTFS, ext, or another filesystem VC Port does not open. FAT and exFAT are supported."
             -1 -> "Could not read the container file."
             -3 -> "Not a VeraCrypt-compatible volume, or the header is damaged."
             -4 -> "Missing path or password argument."
@@ -2595,7 +3178,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun listErrorMessage(code: Int): String {
         return when (code) {
-            -6 -> "Opened the volume, but the filesystem is exFAT or otherwise unsupported. FAT only."
+            -6 -> "Opened the volume, but the filesystem is NTFS or otherwise unsupported. FAT and exFAT work here."
             -4 -> "Could not list that folder path."
             -5 -> "Not enough memory to list the folder."
             -1 -> "Could not read the folder from the volume."
@@ -2605,7 +3188,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractErrorMessage(name: String, rc: Int): String {
         return when (rc) {
-            -6 -> "Could not extract $name. FAT only; exFAT is unsupported."
+            -6 -> "Could not extract $name. NTFS/ext are unsupported; FAT and exFAT work."
             -4 -> "Could not extract $name. Bad path."
             -5 -> "Could not extract $name. Not enough memory."
             -1 -> "Could not extract $name. Read failed."
@@ -2619,9 +3202,9 @@ class MainActivity : AppCompatActivity() {
             return "Hidden volume protection triggered. The outer volume is now write-protected until you dismount."
         }
         return when (rc) {
-            -6 -> "Could not copy $name. FAT only; folders are not created this way."
+            -6 -> "Could not copy $name. Folders are not created this way."
             -4 -> "Could not copy $name. Bad name or path."
-            -5 -> "Could not copy $name. Volume is full, or the file is larger than 256 MiB."
+            -5 -> "Could not copy $name. Volume is full, or the file is larger than 4 GiB (FAT limit)."
             -3 -> "A file named $name already exists in this folder."
             -1 -> "Could not copy $name into the volume."
             else -> "Could not copy $name (code $rc)."
@@ -2654,36 +3237,50 @@ class MainActivity : AppCompatActivity() {
             try {
                 val display = ShareHelper.displayName(this, uri) ?: "file"
                 val name = ShareHelper.safeName(display)
-                val outFile = File(cacheDir, "from-device-${System.nanoTime()}-$name")
-                cache = outFile
-                val input = contentResolver.openInputStream(uri)
-                if (input == null) {
-                    runOnUiThread {
-                        endWork()
-                        onStatus("Could not read that file from the device.")
-                    }
-                    return@Thread
-                }
-                input.use { src ->
-                    outFile.outputStream().use { dest ->
-                        copyStreamProgress(
-                            src,
-                            dest,
-                            uriLength(uri),
-                            if (move) "Reading from device" else "Reading from device"
-                        )
-                    }
-                }
                 val destDir = if (dirPath.isEmpty()) "/" else dirPath
-                val rc = NativeBridge.importFile(handle, destDir, outFile.absolutePath, name)
+                var rc: Int? = null
+                try {
+                    contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                        if (pfd.statSize >= 0L) {
+                            NativeBridge.setProgress(0, "Copying into volume")
+                            rc = NativeBridge.importFile(
+                                handle,
+                                destDir,
+                                "/proc/self/fd/${pfd.fd}",
+                                name
+                            )
+                        }
+                    }
+                } catch (_: Exception) {
+                    rc = null
+                }
+                if (rc == null || rc == -1) {
+                    val outFile = File(cacheDir, "from-device-${System.nanoTime()}-$name")
+                    cache = outFile
+                    val input = contentResolver.openInputStream(uri)
+                    if (input == null) {
+                        runOnUiThread {
+                            endWork()
+                            onStatus("Could not read that file from the device.")
+                        }
+                        return@Thread
+                    }
+                    input.use { src ->
+                        outFile.outputStream().use { dest ->
+                            copyStreamProgress(src, dest, uriLength(uri), "Reading from device")
+                        }
+                    }
+                    rc = NativeBridge.importFile(handle, destDir, outFile.absolutePath, name)
+                }
                 var deletedOriginal = false
                 if (rc == 0 && move) {
                     deletedOriginal = tryDeleteDocument(uri)
                 }
+                val result = rc ?: -1
                 runOnUiThread {
                     endWork()
                     when {
-                        rc != 0 -> onStatus(importErrorMessage(name, rc, handle))
+                        result != 0 -> onStatus(importErrorMessage(name, result, handle))
                         move && !deletedOriginal -> {
                             onStatus("Copied $name into the volume. Could not delete the original; remove it in Files if you meant a move.")
                             loadDir(handle, dirPath, onEntries, onStatus)
@@ -2790,7 +3387,7 @@ class MainActivity : AppCompatActivity() {
     private fun formatEntryProperties(entry: VaultEntry): String {
         val kind = if (entry.isDir) "Folder" else "File"
         val size = if (entry.isDir) "" else ", ${formatSize(entry.size)}"
-        return "$kind ${entry.name}$size, modified ${formatFatStamp(entry.dosDate, entry.dosTime)}. FAT only; this is not a mounted drive."
+        return "$kind ${entry.name}$size, modified ${formatFatStamp(entry.dosDate, entry.dosTime)}. Browsed in this app; this is not a mounted drive."
     }
 
     private fun mkdirInVolume(
@@ -2987,7 +3584,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun copyIncomingAsContainer(file: File): String {
         val name = ShareHelper.sanitizeDisguiseName(file.name)
+        if (file.absolutePath.startsWith(cacheDir.absolutePath) ||
+            file.absolutePath.startsWith(filesDir.absolutePath)
+        ) {
+            return file.absolutePath
+        }
         val outFile = File(cacheDir, name)
+        if (file.length() > 0 && cacheDir.usableSpace < file.length() + (32L shl 20)) {
+            return ""
+        }
         file.copyTo(outFile, overwrite = true)
         return outFile.absolutePath
     }
@@ -2995,9 +3600,15 @@ class MainActivity : AppCompatActivity() {
     private fun copyToCache(uri: Uri): String {
         val display = ShareHelper.displayName(this, uri) ?: "volume.hc"
         val name = ShareHelper.sanitizeDisguiseName(display)
-        val input = contentResolver.openInputStream(uri) ?: return ""
+        val len = uriLength(uri)
+        if (len > 0 && cacheDir.usableSpace < len + (32L shl 20)) {
+            return ""
+        }
+        val input = KeyfileIo.openReadable(this, uri) ?: return ""
         val outFile = File(cacheDir, name)
-        outFile.outputStream().use { output -> input.copyTo(output) }
+        outFile.outputStream().use { output ->
+            copyStreamProgress(input, output, len, "Copying container")
+        }
         input.close()
         return outFile.absolutePath
     }
@@ -3011,6 +3622,7 @@ private fun VaultPane(
     truncated: Boolean,
     busy: Boolean,
     onUp: () -> Unit,
+    onGoToPath: (String) -> Unit,
     onOpen: (VaultEntry) -> Unit,
     onShare: (VaultEntry) -> Unit,
     onCopyFromDevice: () -> Unit,
@@ -3027,78 +3639,83 @@ private fun VaultPane(
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
         Text(
-            "Mounted in this app — folders and files. Not a system drive.",
+            "Mounted in this app",
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            Modifier
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (dirPath.isNotEmpty()) {
                 OutlinedButton(onClick = onUp, enabled = !busy) { Text("Up") }
                 Spacer(Modifier.padding(8.dp))
             }
-            Text(
-                if (dirPath.isEmpty()) "/" else "/$dirPath",
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            val parts = dirPath.split('/').filter { it.isNotEmpty() }
+            TextButton(
+                onClick = { onGoToPath("") },
+                enabled = !busy && dirPath.isNotEmpty()
+            ) { Text("/") }
+            parts.forEachIndexed { index, part ->
+                Text("›", color = colors.onSurfaceVariant)
+                val target = parts.take(index + 1).joinToString("/")
+                TextButton(
+                    onClick = { onGoToPath(target) },
+                    enabled = !busy && index < parts.lastIndex
+                ) { Text(part) }
+            }
         }
         Column(
             Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(
                     onClick = onCopyFromDevice,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Copy from device") }
+                ) { Text("Copy from device", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
                 OutlinedButton(
                     onClick = onMoveFromDevice,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Move from device") }
+                ) { Text("Move from device", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(
                     onClick = onCopyToDevice,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Copy to device") }
+                ) { Text("Copy to device", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
                 OutlinedButton(
                     onClick = onMoveToDevice,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Move to device") }
+                ) { Text("Move to device", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(
                     onClick = onNewFolder,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("New folder") }
+                ) { Text("New folder", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
                 OutlinedButton(
                     onClick = onRename,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Rename") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ) { Text("Rename", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
                 OutlinedButton(
                     onClick = onDelete,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Delete") }
+                ) { Text("Delete", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
                 OutlinedButton(
                     onClick = onProperties,
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
-                ) { Text("Properties") }
+                ) { Text("Properties", maxLines = 1, style = MaterialTheme.typography.labelLarge) }
             }
             OutlinedButton(
                 onClick = onWipeFreeSpace,
@@ -3109,11 +3726,11 @@ private fun VaultPane(
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(VcDesktopBlue)
+                .background(colors.primary)
                 .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
-            Text("Name", color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-            Text("Size", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            Text("Name", color = colors.onPrimary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+            Text("Size", color = colors.onPrimary, style = MaterialTheme.typography.labelSmall)
         }
         if (entries.isEmpty() && !busy) {
             Column(
@@ -3125,7 +3742,7 @@ private fun VaultPane(
             ) {
                 Text("This folder is empty.", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Tap Copy from device to add a file.",
+                    "Tap a folder to open it, or Copy from device to add a file. Copy to device writes a file Files can open.",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant
                 )
@@ -3201,8 +3818,33 @@ private fun VaultPane(
     }
 }
 
+@Composable
+private fun LookPickerLabel(option: VcSkin, selected: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (option == VcSkin.Evangelion) {
+            Icon(
+                painter = painterResource(R.drawable.ic_look_magi),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = Color.Unspecified
+            )
+            Icon(
+                painter = painterResource(R.drawable.ic_look_unit01),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = Color.Unspecified
+            )
+        }
+        Text(if (selected) "●  ${option.picker}" else option.picker)
+    }
+}
+
 private fun formatSize(size: Long): String {
     if (size < 1024) return "$size B"
     if (size < 1024 * 1024) return "${size / 1024} KB"
-    return "${size / (1024 * 1024)} MB"
+    if (size < 1024L * 1024 * 1024) return "${size / (1024 * 1024)} MB"
+    return "${size / (1024L * 1024 * 1024)} GB"
 }

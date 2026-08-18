@@ -25,6 +25,7 @@ add_definitions(
 	-D_LARGEFILE_SOURCE
 	-DARGON2_NO_THREADS
 	-DCRYPTOPP_DISABLE_X86ASM
+	-DTC_PORT_NO_TOKEN
 )
 if(ANDROID)
 	add_definitions(-DTC_LINUX -DTC_ANDROID)
@@ -50,6 +51,10 @@ elseif(APPLE)
 	add_definitions(-DTC_MACOSX)
 else()
 	add_definitions(-DTC_LINUX)
+	# Host Linux CI is x86_64. cpu.c wants TrySHA256 from Sha2Intel.c unless SHANI is off.
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i.86")
+		add_definitions(-DCRYPTOPP_DISABLE_AESNI -DCRYPTOPP_DISABLE_SHANI)
+	endif()
 endif()
 
 include_directories(
@@ -64,6 +69,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/upstream-sources.cmake")
 
 add_library(vc_mobile STATIC
 	vc_mobile.cpp
+	vc_exfat.cpp
 	vc_wrap.cpp
 	vc_progress.cpp
 	token_stubs.cpp
@@ -73,11 +79,20 @@ add_library(vc_mobile STATIC
 	${VC_COMMON}
 )
 
-target_compile_options(vc_mobile PRIVATE -fPIC -fno-strict-aliasing)
+target_compile_options(vc_mobile PRIVATE -fPIC -fno-strict-aliasing -fstack-protector-strong -fno-common)
+# FORTIFY needs -O1+. Host Debug stays -O0; Android arm Debug already forces -O2.
+if(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo|MinSizeRel")
+	target_compile_definitions(vc_mobile PRIVATE _FORTIFY_SOURCE=2)
+endif()
+if(ANDROID AND ANDROID_ABI MATCHES "arm")
+	target_compile_definitions(vc_mobile PRIVATE _FORTIFY_SOURCE=2)
+endif()
 
 # ARM: ARMv8 AES/SHA (+crypto) and NEON. Debug NDK is otherwise -O0, which
 # leaves CPU_QueryAES uninlined and skips auto-vectorized Twofish/Serpent/SHA-512.
 # HMAC-SHA-512 stays sequential; the pool parallelizes XTS and auto-detect KDF.
+# PAC/BTI stays on Aes_hw_armv8 / sha256_armv8 only — whole-library
+# -mbranch-protection aborted host volume tests (C++ PasswordIncorrect).
 if(ANDROID AND ANDROID_ABI STREQUAL "arm64-v8a")
 	target_compile_options(vc_mobile PRIVATE -ftree-vectorize -march=armv8-a+crypto)
 	if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -103,6 +118,11 @@ endif()
 if(ANDROID)
 	add_library(vcport SHARED android_jni.cpp)
 	target_link_libraries(vcport PRIVATE vc_mobile log)
+	target_compile_options(vcport PRIVATE -fstack-protector-strong -fno-common)
+	target_link_options(vcport PRIVATE -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
+	if(ANDROID_ABI MATCHES "arm")
+		target_compile_definitions(vcport PRIVATE _FORTIFY_SOURCE=2)
+	endif()
 	if(ANDROID_ABI STREQUAL "arm64-v8a")
 		target_compile_options(vcport PRIVATE -ftree-vectorize -march=armv8-a+crypto)
 		if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -121,4 +141,11 @@ elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
 	target_link_libraries(vc_volume_test PRIVATE vc_mobile Threads::Threads)
 	add_executable(vc_lifecycle_test test_lifecycle_main.cpp)
 	target_link_libraries(vc_lifecycle_test PRIVATE vc_mobile Threads::Threads)
+	add_executable(vc_crypto_safety_test test_crypto_safety_main.cpp mobile_mocks.cpp)
+	target_link_libraries(vc_crypto_safety_test PRIVATE vc_mobile Threads::Threads)
+	option(VC_ENABLE_ASAN "ASan+UBSan on vc_crypto_safety_test (do not mix with Valgrind)" OFF)
+	if(VC_ENABLE_ASAN)
+		target_compile_options(vc_crypto_safety_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+		target_link_options(vc_crypto_safety_test PRIVATE -fsanitize=address,undefined)
+	endif()
 endif()

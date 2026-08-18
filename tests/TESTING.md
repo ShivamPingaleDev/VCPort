@@ -11,8 +11,8 @@ python3 ports/tests/test_quality.py
 
 | Kind | Question it answers | What actually runs |
 | --- | --- | --- |
-| **Unit** | Does one function do the right thing? | `test_factors.py` (VCF2), `test_wipe.py`, tag/version tables in `test_quality.py`, password generator in `test_wrap_main.cpp` |
-| **Module** | Does one C/Kotlin/Swift unit keep its contract? | `run_wrap_test.sh`, `run_volume_test.sh`, `run_lifecycle_test.sh`, SourcePin / UpdateChecker |
+| **Unit** | Does one function do the right thing? | `test_factors.py` (VCF2), `test_wipe.py`, tag/version tables in `test_quality.py`, password generator in `test_wrap_main.cpp`, AES-256 FIPS-197 + wipe in `run_crypto_safety_test.sh` |
+| **Module** | Does one C/Kotlin/Swift unit keep its contract? | `run_wrap_test.sh`, `run_crypto_safety_test.sh` (ASan/UBSan), `run_volume_test.sh`, `run_lifecycle_test.sh`, SourcePin / UpdateChecker |
 | **White-box** | Do we look at the code paths? | Wrap wrong password / tamper MAC, F-Droid `check()` throws |
 | **Black-box** | Does it behave from the outside? | Wrap in → unwrap out; create → open → list → export; create → store → close → reopen |
 | **Integration** | Do two layers talk? | JNI/C API; Kotlin/Swift VCF2; version.json → PortVersion.h / Info.plist |
@@ -22,8 +22,8 @@ python3 ports/tests/test_quality.py
 | **Regression** | Frozen pin / FOSS rule | Honesty freeze; app is still VC Port |
 | **Contract** | Clients stay in lockstep | `test_contracts.py` |
 | **Security / tamper** | Ciphertext and leftovers | Wrap HMAC; FLAG_SECURE; no F-Droid INTERNET |
-| **Negative / boundary** | Bad input | Generator length 8/65; import 256 MiB; keyfile 1 MiB |
-| **Compatibility** | Same volume on a computer | AES(Twofish(Serpent)) / HMAC-SHA-512; FAT only |
+| **Negative / boundary** | Bad input | Generator length 8/65; import FAT 4 GiB-1; keyfile 1 MiB |
+| **Compatibility** | Same volume on a computer | AES(Twofish(Serpent)) / HMAC-SHA-512; FAT or exFAT |
 | **Recovery** | Header tools | Backup/restore in the volume fixture |
 | **Acceptance** | Ship checklist | Phase 10 public repo + version tag |
 | **Static** | Read source without executing crypto | File greps |
@@ -40,6 +40,7 @@ No Hypothesis, no wall-clock, no network. Seeded RNG and tables only.
 | **Metamorphic** | Prefix strip is identity on a numeric version |
 | **Differential** | Python / Kotlin / Swift share tag prefixes |
 | **Bounded fuzz** | Random tags never throw; wrap garbage fails before a pile of Argon2 |
+| **libFuzzer / AFL++** | `ports/shared/fuzz_wrap.cc` `LLVMFuzzerTestOneInput`; malformed `.vcpw` bytes. See `Makefile.crypto-safety` |
 
 A corrupted biometric vault must decode to empty factors, not crash.
 
@@ -76,10 +77,14 @@ on NativeBridge: wrap/unwrap (wrong password and a flipped byte fail), create,
 open, FAT mkdir/import/list/export/copy-to-folder/rename/delete, wipe free
 space, dismount/reopen, read-only, backup header, change password, PIM 0
 rejected, hidden-volume write protection, benchmark. Compose UI coverage is
-`MainActivityUiTest` (FLAG_SECURE, tabs Volume/Wrap/Create/Tools, Panic wipe
-visible, Stay offline, Encrypt file / Decrypt wrap, Generate strong password;
+`MainActivityUiTest` (FLAG_SECURE, tabs Volume/Create/Tools, Panic wipe
+visible, Stay offline, Decrypt wrap leftover, Generate strong password;
 does not tap Panic wipe or Check for updates; writes GitHub shots under
 app files for `run_device_sim.sh` to pull into `ports/docs/screenshots/`).
+Looks skins are a separate `styled` APK (`connectedStyledDebugAndroidTest`, no INTERNET)
+and a `looksgithub` APK (`connectedLooksgithubDebugAndroidTest`, tap-to-check; tests
+must not tap Check for updates) with the same `applicationId` as production;
+the F-Droid/GitHub packages stay Desktop-only.
 
 ARM64 slices compile Aes_hw_armv8 / sha256_armv8 with `-march=armv8-a+crypto`.
 Debug NDK builds still use `-O2` on that slice so AES/SHA detection and

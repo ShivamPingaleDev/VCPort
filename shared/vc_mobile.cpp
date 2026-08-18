@@ -7,6 +7,7 @@
 */
 
 #include "vc_mobile.h"
+#include "vc_exfat.h"
 
 #include "Volume/Volume.h"
 #include "Volume/Keyfile.h"
@@ -33,6 +34,7 @@
 #include <memory>
 #include <strings.h>
 #include <string>
+#include <sys/types.h>
 #include <unistd.h>
 #include <vector>
 #ifdef __APPLE__
@@ -355,12 +357,30 @@ static int fat_is_eof (const FatGeom *g, uint32_t cluster)
 	return g->fat32 ? cluster >= 0x0FFFFFF8u : cluster >= 0xFFF8u;
 }
 
+/* FAT32 max file is 4 GiB-1. 512-byte clusters need ~8M hops; 16M is headroom. */
+enum { VC_FAT_MAX_HOPS = 1 << 24 };
+
+static int file_size64 (FILE *f, uint64_t *out)
+{
+	if (!f || !out)
+		return -1;
+	if (fseeko (f, 0, SEEK_END) != 0)
+		return -1;
+	off_t sz = ftello (f);
+	if (sz < 0)
+		return -1;
+	*out = (uint64_t) sz;
+	if (fseeko (f, 0, SEEK_SET) != 0)
+		return -1;
+	return 0;
+}
+
 static int fat_read_chain (VcVolume *volume, const FatGeom *g, uint32_t start, std::vector <uint8_t> &out, size_t max_bytes)
 {
 	out.clear ();
 	uint32_t cluster = start;
 	int hops = 0;
-	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < 1 << 20 && out.size () < max_bytes)
+	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < VC_FAT_MAX_HOPS && out.size () < max_bytes)
 	{
 		uint64_t offset = g->data_offset + (uint64_t) (cluster - 2) * g->cluster_size;
 		size_t n = g->cluster_size;
@@ -627,6 +647,11 @@ int vc_list_dir_from (VcVolume *volume, const char *path, VcDirEntry *entries, i
 {
 	if (!volume || !entries || max_entries <= 0 || skip < 0)
 		return VC_ERR_ARGUMENT;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_list_dir_from (volume, path, entries, max_entries, skip);
 
 	FatGeom geom;
 	int rc = fat_load_geom (volume, &geom);
@@ -676,7 +701,7 @@ static int fat_copy_file (VcVolume *volume, const VcDirEntry *entry, void *buffe
 	size_t written = 0;
 	int hops = 0;
 	std::vector <uint8_t> chunk (geom.cluster_size);
-	while (remaining && cluster >= 2 && !fat_is_eof (&geom, cluster) && hops++ < 1 << 20)
+	while (remaining && cluster >= 2 && !fat_is_eof (&geom, cluster) && hops++ < VC_FAT_MAX_HOPS)
 	{
 		uint64_t offset = geom.data_offset + (uint64_t) (cluster - 2) * geom.cluster_size;
 		size_t n = remaining < geom.cluster_size ? (size_t) remaining : geom.cluster_size;
@@ -715,6 +740,11 @@ int vc_read_file (VcVolume *volume, const char *path, void *buffer, size_t buffe
 		*out_size = 0;
 	if (!volume || !path || !buffer)
 		return VC_ERR_ARGUMENT;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_read_file (volume, path, buffer, buffer_size, out_size);
 
 	VcDirEntry entry;
 	int rc = fat_find_path (volume, path, &entry);
@@ -727,6 +757,11 @@ int vc_export_file (VcVolume *volume, const char *path, const char *dest_path)
 {
 	if (!volume || !path || !dest_path)
 		return VC_ERR_ARGUMENT;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_export (volume, path, dest_path);
 
 	VcDirEntry entry;
 	int rc = fat_find_path (volume, path, &entry);
@@ -744,7 +779,7 @@ int vc_export_file (VcVolume *volume, const char *path, const char *dest_path)
 	return rc;
 }
 
-enum { VC_IMPORT_MAX = 256 * 1024 * 1024 };
+/* FAT32 max file size. Import streams by cluster; do not add a RAM cap here. */
 
 static uint32_t fat_eof_mark (const FatGeom *g)
 {
@@ -789,10 +824,18 @@ static int fat_poke (VcVolume *volume, const FatGeom *g, uint32_t cluster, uint3
 	return VC_OK;
 }
 
-static uint32_t fat_find_free (VcVolume *volume, const FatGeom *g)
+static uint32_t fat_find_free (VcVolume *volume, const FatGeom *g, uint32_t start = 2)
 {
 	uint32_t maxc = fat_max_cluster (volume, g);
-	for (uint32_t c = 2; c <= maxc; ++c)
+	if (start < 2)
+		start = 2;
+	for (uint32_t c = start; c <= maxc; ++c)
+	{
+		uint32_t v = fat_next (volume, g, c);
+		if (v == 0)
+			return c;
+	}
+	for (uint32_t c = 2; c < start && c <= maxc; ++c)
 	{
 		uint32_t v = fat_next (volume, g, c);
 		if (v == 0)
@@ -805,7 +848,7 @@ static int fat_free_chain (VcVolume *volume, const FatGeom *g, uint32_t start)
 {
 	uint32_t cluster = start;
 	int hops = 0;
-	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < 1 << 20)
+	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < VC_FAT_MAX_HOPS)
 	{
 		uint32_t next = fat_next (volume, g, cluster);
 		if (fat_poke (volume, g, cluster, 0) != VC_OK)
@@ -824,7 +867,7 @@ static int fat_collect_chain (VcVolume *volume, const FatGeom *g, uint32_t start
 	if (g->fat32 && cluster < 2)
 		cluster = g->root_cluster;
 	int hops = 0;
-	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < 1 << 20)
+	while (cluster >= 2 && !fat_is_eof (g, cluster) && hops++ < VC_FAT_MAX_HOPS)
 	{
 		out.push_back (cluster);
 		cluster = fat_next (volume, g, cluster);
@@ -1264,6 +1307,11 @@ int vc_import_file (VcVolume *volume, const char *dest_dir, const char *src_path
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_import (volume, dest_dir, src_path, dest_name);
 	if (!src_path || !src_path[0])
 		return VC_ERR_ARGUMENT;
 	const char *name = dest_name && dest_name[0] ? dest_name : fat_basename (src_path);
@@ -1300,36 +1348,25 @@ int vc_import_file (VcVolume *volume, const char *dest_dir, const char *src_path
 	FILE *in = fopen (src_path, "rb");
 	if (!in)
 		return VC_ERR_IO;
-	if (fseek (in, 0, SEEK_END) != 0)
+	uint64_t size = 0;
+	if (file_size64 (in, &size) != 0)
 	{
 		fclose (in);
 		return VC_ERR_IO;
-	}
-	long szl = ftell (in);
-	if (szl < 0)
-	{
-		fclose (in);
-		return VC_ERR_IO;
-	}
-	uint64_t size = (uint64_t) szl;
-	if (size > VC_IMPORT_MAX)
-	{
-		fclose (in);
-		return VC_ERR_MEMORY;
 	}
 	if (size > 0xFFFFFFFFull)
 	{
 		fclose (in);
-		return VC_ERR_ARGUMENT;
+		return VC_ERR_MEMORY;
 	}
-	rewind (in);
 
 	uint32_t nClusters = size == 0 ? 0 : (uint32_t) ((size + geom.cluster_size - 1) / geom.cluster_size);
 	std::vector<uint32_t> chain;
 	chain.reserve (nClusters);
+	uint32_t hint = 2;
 	for (uint32_t i = 0; i < nClusters; ++i)
 	{
-		uint32_t c = fat_find_free (volume, &geom);
+		uint32_t c = fat_find_free (volume, &geom, hint);
 		if (!c)
 		{
 			fclose (in);
@@ -1343,6 +1380,7 @@ int vc_import_file (VcVolume *volume, const char *dest_dir, const char *src_path
 			return VC_ERR_IO;
 		}
 		chain.push_back (c);
+		hint = c + 1;
 	}
 	for (size_t i = 0; i + 1 < chain.size (); ++i)
 	{
@@ -1395,6 +1433,11 @@ int vc_delete_file (VcVolume *volume, const char *path)
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_delete (volume, path);
 	if (!path)
 		return VC_ERR_ARGUMENT;
 	VcDirEntry entry;
@@ -1428,6 +1471,11 @@ int vc_mkdir (VcVolume *volume, const char *parent_dir, const char *name)
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_mkdir (volume, parent_dir, name);
 	name = fat_basename (name);
 	if (fat_name_bad (name))
 		return VC_ERR_ARGUMENT;
@@ -1482,6 +1530,11 @@ int vc_rmdir (VcVolume *volume, const char *path)
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_rmdir (volume, path);
 	if (!path || fat_is_root_path (path))
 		return VC_ERR_ARGUMENT;
 	VcDirEntry entry;
@@ -1526,6 +1579,11 @@ int vc_rename (VcVolume *volume, const char *path, const char *new_name)
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_rename (volume, path, new_name);
 	new_name = fat_basename (new_name);
 	if (!path || fat_name_bad (new_name))
 		return VC_ERR_ARGUMENT;
@@ -1573,6 +1631,11 @@ int vc_wipe_free_space (VcVolume *volume)
 	int wr = fat_writable (volume);
 	if (wr != VC_OK)
 		return wr;
+	int ex = vc_exfat_probe (volume);
+	if (ex < 0)
+		return ex;
+	if (ex)
+		return vc_exfat_wipe_free (volume);
 	FatGeom geom;
 	int rc = fat_load_geom (volume, &geom);
 	if (rc != VC_OK)
@@ -1865,7 +1928,7 @@ static int BuildHeader (
 }
 
 static int FormatOpened (const char *path, const char *password, size_t passwordLen, int pim,
-	const char *const *keyfiles, size_t keyfileCount, uint64 dataBytes)
+	const char *const *keyfiles, size_t keyfileCount, uint64 dataBytes, int exfat)
 {
 	VcOpenOptions openOpt = {};
 	openOpt.path = path;
@@ -1878,7 +1941,7 @@ static int FormatOpened (const char *path, const char *password, size_t password
 	VcVolume *vol = vc_open (&openOpt, &err);
 	if (!vol)
 		return err != 0 ? err : VC_ERR_FORMAT;
-	int fatRc = format_empty_fat16 (vol, dataBytes);
+	int fatRc = exfat ? vc_exfat_format (vol, dataBytes) : format_empty_fat16 (vol, dataBytes);
 	vc_close (vol);
 	return fatRc;
 }
@@ -1971,15 +2034,27 @@ int vc_create_volume (const VcCreateOptions *options)
 		file.Close ();
 
 		vc_progress_set (70, "Formatting");
+		int useExfat = 0;
+		if (options->filesystem && options->filesystem[0])
+		{
+			if (strcasecmp (options->filesystem, "exfat") == 0)
+				useExfat = 1;
+			else
+				useExfat = 0;
+		}
+		else
+			useExfat = options->size_bytes >= 4ull * 1024ull * 1024ull * 1024ull;
+		if (options->size_bytes >= 4ull * 1024ull * 1024ull * 1024ull)
+			useExfat = 1;
 		rc = FormatOpened (options->path, pw, pwLen, options->pim,
-			options->keyfiles, options->keyfile_count, outerDataSize);
+			options->keyfiles, options->keyfile_count, outerDataSize, useExfat);
 		if (rc != VC_OK)
 			return rc;
 		if (hiddenSize > 0)
 		{
 			vc_progress_set (85, "Formatting nested volume");
 			rc = FormatOpened (options->path, hiddenPw, hiddenPwLen, options->hidden_pim,
-				options->hidden_keyfiles, options->hidden_keyfile_count, hiddenDataSize);
+				options->hidden_keyfiles, options->hidden_keyfile_count, hiddenDataSize, useExfat);
 		}
 		if (rc == VC_OK)
 			vc_progress_set (100, "Done");
