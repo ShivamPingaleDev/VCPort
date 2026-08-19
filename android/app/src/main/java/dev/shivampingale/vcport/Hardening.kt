@@ -15,8 +15,8 @@ import java.security.KeyStore
  * of a casual seizure and of forensic leftovers.
  *
  * No backdoor: this object never opens a socket, never listens, and never
- * phones home. Network exists only in the GitHub flavor UpdateChecker, on a
- * user tap, for ≤20s, to hardcoded hosts.
+ * phones home. Master builds have no INTERNET permission. Live Check for
+ * updates is on experimental-biometrics.
  */
 object Hardening {
     fun protectWindow(activity: Activity) {
@@ -59,11 +59,14 @@ object Hardening {
         wipeDir(File(context.cacheDir, "keyfiles"))
         wipeDir(File(context.cacheDir, "unwrapped"))
         wipeDir(File(context.cacheDir, "share"))
+        wipeDir(File(context.cacheDir, "wraps"))
         context.cacheDir.listFiles()?.forEach { file ->
             if (file.isFile && (
                     file.name.startsWith("wrap-in-") ||
                         file.name.startsWith("vcbio") ||
-                        file.name.startsWith("vc-in-")
+                        file.name.startsWith("vc-in-") ||
+                        file.name.startsWith("xfer-") ||
+                        file.name.startsWith("to-device-")
                     )
             ) {
                 wipeFile(file)
@@ -74,13 +77,14 @@ object Hardening {
     fun panic(context: Context) {
         wipeSessionFiles(context)
         wipeDir(File(context.cacheDir, "inbox"))
+        wipeDir(File(context.cacheDir, "containers"))
         context.cacheDir.listFiles()?.forEach { file ->
             if (file.isFile) wipeFile(file)
         }
         context.getSharedPreferences("vc_port_bio", Context.MODE_PRIVATE).edit().clear().apply()
         try {
             val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            for (alias in listOf(BiometricVault.KEY_ALIAS, BiometricVault.LEGACY_KEY_ALIAS)) {
+            for (alias in listOf("vc_port_volume_key_v2", "vc_port_volume_key")) {
                 if (store.containsAlias(alias)) {
                     store.deleteEntry(alias)
                 }

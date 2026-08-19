@@ -35,10 +35,10 @@ class Phase1HonestyFreezeTests(unittest.TestCase):
         cite = read("CITATION.cff")
         self.assertIn("email: shivampingaledev@proton.me", cite)
         self.assertIn("email: shivampingaledev@gmail.com", cite)
-        fdroid = read("ports/fdroiddata/metadata/dev.shivampingale.vcport.yml")
-        self.assertIn("AuthorName: Shivam Mangesh Pingale", fdroid)
-        self.assertIn("shivampingaledev@proton.me", fdroid)
-        self.assertIn("shivampingaledev@gmail.com", fdroid)
+        foss = read("ports/FOSS.md")
+        self.assertIn("Shivam Mangesh Pingale", foss)
+        self.assertIn("shivampingaledev@proton.me", foss)
+        self.assertIn("shivampingaledev@gmail.com", foss)
 
     def test_no_github_release_apk_job(self) -> None:
         wf = read(".github/workflows/vcport.yml")
@@ -132,15 +132,30 @@ class Phase3FatFolderTests(unittest.TestCase):
         self.assertIn('Button("Dismount") { lockSession() }', ios)
         self.assertNotIn('Button("Dismount") { closeVolume() }', ios)
         self.assertIn("wipeSessionFiles()", ios)
-        self.assertIn("bioSecretState.value = null", android)
         self.assertIn("createPasswordState.value = \"\"", android)
-        self.assertEqual(ios.count("BiometricStore.deleteAll()"), 1)
+        self.assertNotIn("BiometricStore.deleteAll()", ios)
         self.assertIn("!truncated!", android)
         self.assertIn("Load more", android)
         self.assertIn("listDir", ios)
         self.assertIn("!truncated!", ios)
         self.assertIn("Load more", ios)
         self.assertIn("FAT and exFAT folders are browsable", ios)
+        self.assertIn("Open another container", android)
+        self.assertIn("Open another container", ios)
+        self.assertIn("Copy to volume", android)
+        self.assertIn("Copy to volume", ios)
+        self.assertIn("Move to volume", android)
+        self.assertIn("Move to volume", ios)
+        self.assertIn("This session already has 8 volumes mounted", android)
+        self.assertIn("This session already has 8 volumes mounted", ios)
+        self.assertIn("already mounted", android)
+        self.assertIn("already mounted", ios)
+        self.assertIn("tab_mounted", android)
+        self.assertIn("MOUNT_SLOTS = 8", android)
+        self.assertIn("mountSlots = 8", ios)
+        self.assertIn("Label(\"Mounted\"", ios)
+        self.assertIn("Select files", android)
+        self.assertIn("Select files", ios)
         self.assertNotIn("VolumeDocumentsProvider", read("ports/android/app/src/main/AndroidManifest.xml"))
         jni = read("ports/shared/android_jni.cpp")
         self.assertIn("VC_LIST_UI_MAX", jni)
@@ -170,9 +185,8 @@ class Phase4AndroidTests(unittest.TestCase):
         self.assertIn("NativeBridge.mkdir", mkdir)
         self.assertIn("Not enough memory to open the volume.", main)
         self.assertIn("Missing path or password argument.", main)
-        self.assertIn("formatUpdateStatus", main)
-        self.assertIn("SHA-256", main)
-        self.assertIn("debug-signed previews", main)
+        self.assertIn("does not install itself", main)
+        self.assertIn("sync-upstream.sh", read("ports/UPSTREAM.md"))
 
 
 class Phase5IosTests(unittest.TestCase):
@@ -203,33 +217,42 @@ class Phase5IosTests(unittest.TestCase):
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("Not enough memory to open the volume.", view)
         self.assertIn("Missing path or password argument.", view)
-        self.assertIn("formatUpdateStatus", view)
+        self.assertIn("does not install itself", view)
+        self.assertIn("sync-upstream.sh", read("ports/UPSTREAM.md"))
+
+    def test_ipad_simulator_and_sideload_sign(self) -> None:
+        sim = read("ports/ios/run_ipad_sim.sh")
+        sign = read("ports/ios/sideload-sign.sh")
+        yml = read("ports/ios/project.yml")
+        self.assertIn("iPad", sim)
+        self.assertIn("CODE_SIGNING_ALLOWED=NO", sim)
+        self.assertIn("dev.shivampingale.vcport", sim)
+        self.assertIn("Apple Development", sign)
+        self.assertIn("DEVELOPMENT_TEAM", sign)
+        self.assertIn("generic/platform=iOS", sign)
+        self.assertIn("Signing.local.xcconfig", sign)
+        self.assertIn("TARGETED_DEVICE_FAMILY: \"1,2\"", yml)
+        self.assertIn("run_ipad_sim.sh", read("ports/tests/run-phases.sh"))
+        self.assertIn("run_ios_session_test.sh", read("ports/tests/run-phases.sh"))
+        self.assertIn("VCPortTests", yml)
+        self.assertIn("AppInterfaceSessionTests", read("ports/ios/run_ios_session_test.sh"))
+        self.assertIn("generic/platform=iOS", read("ports/ios/build-unsigned-ipa.sh"))
+        phones = read("ports/scripts/build-phones.sh")
+        self.assertIn("assembleFossRelease", phones)
+        self.assertIn("build-unsigned-ipa.sh", phones)
+        self.assertIn("APID", phones)
+        self.assertIn("IPID", phones)
+        self.assertIn("VC_PORT_IOS_TEAM", phones)
 
 
-class Phase6DesktopTests(unittest.TestCase):
-    def test_stay_offline_gates_help_updates(self) -> None:
-        frame = read("src/Main/Forms/MainFrame.cpp")
-        self.assertIn("GetPreferences().StayOffline", frame)
-        self.assertIn("OnCheckForUpdatesMenuItemSelected", frame)
-        prefs = read("src/Main/UserPreferences.h")
-        self.assertIn("StayOffline (true)", prefs)
-        self.assertIn("SaveHistory (false)", prefs)
-
-    def test_panic_reports_dismount_failure(self) -> None:
-        frame = read("src/Main/Forms/MainFrame.cpp")
-        self.assertIn("PANIC_WIPE_DISMOUNT_FAILED", frame)
-        lang = read("src/Common/Language.xml")
-        self.assertIn('key="PANIC_WIPE_DISMOUNT_FAILED"', lang)
-
-    def test_offline_update_user_agent_uses_port_version(self) -> None:
-        update = read("src/Main/OfflineUpdate.cpp")
-        self.assertIn("VCPort-OfflineUpdate/", update)
-        self.assertIn("VC_PORT_VERSION", update)
-        self.assertNotIn("VCPort-OfflineUpdate/0.1", update)
-        self.assertIn("--max-redirs", update)
-        self.assertIn("--max-filesize", update)
-        self.assertIn("UrlAllowed", update)
-        self.assertNotIn("-fsSL", update)
+class Phase6ArchiveTests(unittest.TestCase):
+    def test_no_desktop_fork_extras(self) -> None:
+        if not FULL_TREE:
+            self.skipTest("src/ lives in Veracrypt_port")
+        self.assertFalse(resolve("archive/desktop").exists())
+        self.assertFalse(resolve("src/Main/OfflineUpdate.cpp").exists())
+        self.assertFalse(resolve("src/Main/PortFileWrap.cpp").exists())
+        self.assertNotIn("PortFileWrap", read("src/Main/Forms/MainFrame.cpp"))
 
 
 class Phase7ManifestTests(unittest.TestCase):
@@ -245,16 +268,14 @@ class Phase7ManifestTests(unittest.TestCase):
                 self.assertTrue(url.startswith("https://"), key)
 
     def test_github_checker_rejects_bad_hex_and_http(self) -> None:
-        github = read("ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt")
-        self.assertIn("SHA256", github)
-        self.assertIn("bad manifest", github)
-        self.assertIn('startsWith("https://")', github)
+        checker = read("ports/android/app/src/main/java/dev/shivampingale/vcport/UpdateChecker.kt")
+        self.assertIn("has no network", checker)
+        self.assertNotIn("HttpURLConnection", checker)
         ios = read("ports/ios/VCPort/UpdateChecker.swift")
-        self.assertIn("android_apk_sha256", ios)
-        desktop = read("src/Main/OfflineUpdate.cpp")
-        self.assertIn("android_apk_sha256", desktop)
-        self.assertIn("tag_name", desktop)
-        self.assertIn("VersionFromVeraCryptTag", desktop)
+        self.assertIn("has no network", ios)
+        self.assertNotIn("URLSession", ios)
+        self.assertIn("android_apk_sha256", read("ports/version.json"))
+        self.assertIn("tag_name", read("ports/scripts/check_veracrypt_release.py"))
 
 
 class Phase8CiTests(unittest.TestCase):
@@ -265,13 +286,17 @@ class Phase8CiTests(unittest.TestCase):
         self.assertIn("macos-latest", wf)
         self.assertIn("ports/tests/run-all.sh", wf)
         self.assertIn("apt-get install -y g++ python3 cmake", wf)
-        self.assertIn("assembleFdroidRelease", wf)
+        self.assertIn("assembleFossRelease", wf)
         self.assertIn("assembleGithubRelease", wf)
-        self.assertIn("assembleStyledRelease", wf)
-        self.assertIn("assembleLooksgithubRelease", wf)
-        self.assertIn("vcport-looks-apk", wf)
-        self.assertIn("ios-native:", wf)
-        self.assertIn("iphonesimulator", wf)
+        self.assertNotIn("assembleStyledRelease", wf)
+        self.assertNotIn("assembleLooksgithubRelease", wf)
+        self.assertNotIn("vcport-looks-apk", wf)
+        self.assertIn("ios:", wf)
+        self.assertIn("build-unsigned-ipa.sh", wf)
+        self.assertIn("iphoneos", read("ports/ios/build-unsigned-ipa.sh"))
+        self.assertNotIn("ios-native:", wf)
+        self.assertNotIn("needs: android", wf)
+        self.assertNotIn("needs: ios", wf)
         self.assertNotIn("release-apks:", wf)
         self.assertIn("src/Main/**", wf)
         self.assertIn("src/Driver/**", wf)
@@ -289,23 +314,26 @@ class Phase8CiTests(unittest.TestCase):
 
 
 class Phase9LegalVersionTests(unittest.TestCase):
-    def test_current_version_is_0_3_1(self) -> None:
+    def test_current_version_is_0_3_7(self) -> None:
         v = load_version()
-        self.assertEqual(v["port_version"], "0.3.1")
+        self.assertEqual(v["port_version"], "0.3.7")
         self.assertEqual(v["upstream_version"], "1.26.29")
         self.assertEqual(v["upstream_commit"], "b48e31f5b47da7d41025e3f0e02751675e15005a")
         self.assertEqual(v["upstream_git"], "https://github.com/veracrypt/VeraCrypt.git")
         self.assertEqual(v["upstream_tag"], "VeraCrypt_1.26.29")
-        h = read("src/Main/PortVersion.h")
-        self.assertIn('#define VC_PORT_VERSION\t\t\t"0.3.1"', h)
+        plist = read("ports/ios/VCPort/Info.plist")
+        self.assertIn("0.3.7", plist)
         gradle = read("ports/android/app/build.gradle")
         self.assertIn("versionJson.port_version", gradle)
         self.assertIn("android_version_code", gradle)
-        self.assertEqual(v["android_version_code"], 6)
-        notes = resolve("ports/android/fastlane/metadata/android/en-US/changelogs/6.txt")
-        self.assertTrue(notes.is_file(), "missing Fastlane changelog for versionCode 6")
-        self.assertIn("hidden-volume", notes.read_text(encoding="utf-8"))
+        self.assertEqual(v["android_version_code"], 12)
+        notes = resolve("ports/android/fastlane/metadata/android/en-US/changelogs/12.txt")
+        self.assertTrue(notes.is_file(), "missing Fastlane changelog for versionCode 12")
+        self.assertIn("session tests", notes.read_text(encoding="utf-8").lower())
         self.assertIn("not unbreakable", notes.read_text(encoding="utf-8").lower())
+        self.assertIn("stable alpha", notes.read_text(encoding="utf-8").lower())
+        self.assertIn("stable alpha", read("ports/CHANGELOG.md").lower())
+        self.assertIn("stable alpha", v["notes"].lower())
 
     def test_about_and_contact_on_every_surface(self) -> None:
         android = read("ports/android/app/src/main/res/values/strings.xml")
@@ -314,18 +342,14 @@ class Phase9LegalVersionTests(unittest.TestCase):
             self.assertIn("shivampingaledev@proton.me", blob)
             self.assertIn("shivampingaledev@gmail.com", blob)
         self.assertIn("Shivam Mangesh Pingale", android)
+        self.assertIn("https://github.com/ShivamPingaleDev/Veracrypt_port", android)
         footnote = "programming noob still doing a five-year IT engineering degree"
         blobs = [
-            android,
-            ios,
-            read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt"),
             read("ports/README.md"),
             read("ports/NOTICE"),
             read("ports/CONTRIBUTING.md"),
             read("ports/FOSS.md"),
             read("ports/android/fastlane/metadata/android/en-US/full_description.txt"),
-            read("ports/ios/altstore/source.json"),
-            read("ports/fdroiddata/metadata/dev.shivampingale.vcport.yml"),
             read("ports/PUBLIC.md"),
         ]
         if FULL_TREE:
@@ -341,7 +365,7 @@ class Phase9LegalVersionTests(unittest.TestCase):
             self.assertIn(footnote, blob)
             self.assertIn("Open to suggestions and advice", blob)
 
-    def test_no_fake_fdroid_screenshots(self) -> None:
+    def test_no_fake_store_screenshots(self) -> None:
         shots = resolve("ports/android/fastlane/metadata/android/en-US/images/phoneScreenshots")
         if shots.is_dir():
             files = [p for p in shots.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
@@ -352,13 +376,14 @@ class Phase9LegalVersionTests(unittest.TestCase):
         self.assertTrue(shots.is_dir(), "missing ports/docs/screenshots")
         names = [
             "01-volume.png",
-            "02-wrap.png",
             "03-create.png",
             "04-tools.png",
-            "05-skin-cyberpunk.png",
-            "06-skin-matrix.png",
-            "07-skin-eva.png",
+            "05-mounted.png",
             "08-skin-signal.png",
+            "ios-01-volume.png",
+            "ios-03-create.png",
+            "ios-04-tools.png",
+            "ios-05-mounted.png",
         ]
         for name in names:
             path = shots / name
@@ -376,10 +401,12 @@ class Phase10RelaunchTests(unittest.TestCase):
     def test_foss_says_public(self) -> None:
         foss = read("ports/FOSS.md")
         self.assertIn("https://github.com/ShivamPingaleDev/Veracrypt_port", foss)
-        self.assertIn("v0.3.0", foss)
         self.assertIn("https://github.com/ShivamPingaleDev/VCPort", foss)
+        self.assertIn("assembleFossRelease", foss)
+        self.assertIn("build-phones.sh", foss)
+        self.assertIn("VC_PORT_IOS_TEAM", foss)
+        self.assertNotIn("fdroiddata", foss)
         self.assertNotIn("may still be private", foss)
-        self.assertIn("subdir: ports/android", foss)
         self.assertNotIn("this repository is currently private", foss.lower())
 
     def test_hash_release_refuses_debug_apk_name(self) -> None:

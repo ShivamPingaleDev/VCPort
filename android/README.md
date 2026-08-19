@@ -3,35 +3,30 @@
 Kotlin / Jetpack Compose client with:
 
 - VeraCrypt volume core via NDK (`shared/`)
-- Biometric unlock as an *extra* VeraCrypt keyfile after you type the volume password. Android Keystore + BiometricPrompt. Export the keyfile for a computer. Fingerprint/face is not the password (NIST SP 800-63B).
-- In-app FAT or exFAT folder browse, extract, copy/move, New folder / Rename / Delete / Properties, and wipe free space. Files larger than 4 GiB need exFAT. This app cannot mount a whole USB disk.
+- Password, PIM, keyfiles, and mount options (backup header, read-only, TrueCrypt Mode, hidden-volume protection). Fingerprint unlock is on `experimental-biometrics`, not master.
+- In-app FAT or exFAT folder browse, extract, copy/move (including Copy to volume / Move to volume between several mounted containers, and Copy/Move several files from or to the device), New folder / Rename / Delete / Properties, and wipe free space. Files larger than 4 GiB need exFAT. This app cannot mount a whole USB disk. Several containers can stay mounted in one session (up to 8).
 - System share sheet for decrypted files inside a volume, and **Share encrypted file** to send `.hc` / `.tc` / `.vera` as-is (no unlock)
-- Wrap/unwrap individual files (`.vcpw`) and an in-memory password generator that never saves history
+- In-memory password generator that never saves history
 - Incoming share / open: other apps can send a file into VC Port
-- In-app FAT browser only (no DocumentsProvider; that was a seizure leak). Copy/move uses the system file picker.
+- In-app FAT browser only (no DocumentsProvider; that was a seizure leak). Copy/move uses the system file picker. Android will not let a third-party app attach a volume as a folder other apps can browse.
 
-F-Droid / FOSS flavor (no `INTERNET` permission, no Play libraries):
+FOSS production flavor (no `INTERNET` permission, no Play libraries):
 
 ```bash
 cd android
-./gradlew :app:assembleFdroidRelease
+./gradlew :app:assembleFossRelease
 ```
 
-Optional GitHub flavor (user-tapped update check only):
+GitHub preview flavor (same app id, also offline on master):
 
 ```bash
 ./gradlew :app:assembleGithubRelease
 ```
 
-Looks APK — same `applicationId` as production (`dev.shivampingale.vcport`), Desktop plus Cyberpunk / Matrix / MAGI / Signal. Installing it replaces the Desktop-only APK. GitHub Release asset, not F-Droid. Two flavors:
-
-```bash
-./gradlew :app:assembleStyledRelease         # no INTERNET; updates are a new APK
-./gradlew :app:assembleLooksgithubRelease    # tap Check for updates (same window as GitHub Desktop)
-```
+Appearance is Original plus Dark mode in both. Cyberpunk, Matrix, and MAGI are archived under `archive/looks/` and are not built.
 
 Open `android/` in Android Studio if you prefer. The native library is `libvcport.so`, built from `shared/CMakeLists.txt`.
 
-Release signing: do **not** commit a keystore. CI and GitHub APKs stay **debug-signed previews**. For a local production APK, set `VC_PORT_RELEASE_STORE_FILE`, `VC_PORT_RELEASE_STORE_PASSWORD`, `VC_PORT_RELEASE_KEY_ALIAS`, and `VC_PORT_RELEASE_KEY_PASSWORD`. F-Droid rebuilds from source and signs with the F-Droid key.
+Release signing: do **not** commit a keystore. CI and GitHub APKs stay **debug-signed previews**. For a local production APK, set `VC_PORT_RELEASE_STORE_FILE`, `VC_PORT_RELEASE_STORE_PASSWORD`, `VC_PORT_RELEASE_KEY_ALIAS`, and `VC_PORT_RELEASE_KEY_PASSWORD`. You sign production yourself.
 
 Store metadata lives in `android/fastlane/metadata/android/`. Inclusion notes: [FOSS.md](../FOSS.md).

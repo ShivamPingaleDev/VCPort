@@ -23,12 +23,11 @@ android {
         buildConfigField 'String', 'UPSTREAM_COMMIT', "\"${qcfg(versionJson.upstream_commit as String)}\""
         buildConfigField 'String', 'SOURCE_REPO', "\"${qcfg(versionJson.source_repo as String)}\""
         buildConfigField 'String', 'SOURCE_MANIFEST', "\"${qcfg(versionJson.update_manifest as String)}\""
-        // Official VeraCrypt git + GitHub latest-release API. GitHub flavor may GET this
-        // when the user taps Check for updates. The APK never fetches src/ or installs itself.
+        // Official VeraCrypt git + GitHub latest-release API, baked in at compile time.
+        // Master APKs never fetch these URLs. Live Check for updates is on experimental-biometrics.
         buildConfigField 'String', 'UPSTREAM_GIT', "\"${qcfg(versionJson.upstream_git as String)}\""
         buildConfigField 'String', 'UPSTREAM_RELEASES', "\"${qcfg(versionJson.upstream_releases as String)}\""
         buildConfigField 'String', 'UPSTREAM_TAG', "\"${qcfg(versionJson.upstream_tag as String)}\""
-        buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
@@ -42,28 +41,13 @@ android {
 
     flavorDimensions += 'distribution'
     productFlavors {
-        fdroid {
+        foss {
             dimension 'distribution'
             buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'
-            buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
         }
         github {
             dimension 'distribution'
-            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'
-            buildConfigField 'boolean', 'ENABLE_SKINS', 'false'
-        }
-        // Same applicationId as production. Looks APK on GitHub Releases, not a new package.
-        styled {
-            dimension 'distribution'
             buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'
-            buildConfigField 'boolean', 'ENABLE_SKINS', 'true'
-        }
-        // Looks + the GitHub tap-to-check window (version.json / official VeraCrypt).
-        // Same applicationId; installing it replaces the offline Looks APK.
-        looksgithub {
-            dimension 'distribution'
-            buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'
-            buildConfigField 'boolean', 'ENABLE_SKINS', 'true'
         }
     }
 
@@ -72,7 +56,7 @@ android {
             minifyEnabled false
             shrinkResources false
             // CI / GitHub preview: debug-signed until a release keystore is set.
-            // F-Droid rebuilds from source and signs with the F-Droid key.
+            // Sign production yourself with VC_PORT_RELEASE_STORE_FILE.
             signingConfig signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -140,7 +124,6 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.fragment:fragment-ktx:1.8.2'
-    implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.documentfile:documentfile:1.0.1'
     androidTestImplementation platform('androidx.compose:compose-bom:2024.06.00')
     androidTestImplementation 'androidx.compose.ui:ui-test-junit4'

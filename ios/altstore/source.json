@@ -1,6 +1,6 @@
 {
   "name": "VC Port",
-  "subtitle": "VeraCrypt-compatible volumes on iPhone, built from source",
+  "subtitle": "VeraCrypt-compatible volumes on iPhone and iPad, built from source",
   "description": "Sideload VC Port. The app stays offline, uses no trackers, and is not named VeraCrypt. Portions are based in part on TrueCrypt, freely available at http://www.truecrypt.org/",
   "website": "https://github.com/ShivamPingaleDev/VCPort",
   "tintColor": "#1A2332",
@@ -14,12 +14,66 @@
       "bundleIdentifier": "dev.shivampingale.vcport",
       "developerName": "Shivam Mangesh Pingale",
       "subtitle": "Open VeraCrypt-compatible containers offline",
-      "localizedDescription": "VC Port opens VeraCrypt-compatible volumes on iPhone, shares encrypted containers as-is, and wraps individual files. No ads, analytics, or crash reporters. Volume passwords stay on device behind Face ID / Touch ID.\n\nPortions of this product are based in part on TrueCrypt, freely available at http://www.truecrypt.org/\n\nThis derived work is not named VeraCrypt. Not unbreakable.\n\nContact: shivampingaledev@proton.me / shivampingaledev@gmail.com\n\nFootnote: A programming noob still doing a five-year IT engineering degree (graduate summer 2027). Just trying to make something better that he likes to use, without much knowledge. Open to suggestions and advice.",
+      "localizedDescription": "VC Port opens VeraCrypt-compatible volumes on iPhone. Not named VeraCrypt. Not unbreakable.\n\nhttps://github.com/ShivamPingaleDev/Veracrypt_port\nShivam Mangesh Pingale — shivampingaledev@proton.me · shivampingaledev@gmail.com\n\nPortions of this product are based in part on TrueCrypt, freely available at http://www.truecrypt.org/",
       "iconURL": "https://raw.githubusercontent.com/ShivamPingaleDev/VCPort/master/android/fastlane/metadata/android/en-US/images/icon.png",
       "tintColor": "#1A2332",
       "category": "utilities",
       "screenshotURLs": [],
       "versions": [
+        {
+          "version": "0.3.7",
+          "buildVersion": "12",
+          "date": "2026-08-19T00:00:00-00:00",
+          "localizedDescription": "Stable alpha. Unsigned IPA on the GitHub tag; sign it yourself. Android is a single FOSS APK.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.3.6",
+          "buildVersion": "11",
+          "date": "2026-08-19T00:00:00-00:00",
+          "localizedDescription": "Stable alpha. Unsigned IPA on the GitHub tag; sign it yourself. Android is a single FOSS APK.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.3.5",
+          "buildVersion": "10",
+          "date": "2026-08-19T00:00:00-00:00",
+          "localizedDescription": "Draft listing. Unsigned IPA on the GitHub tag; sign it yourself. Android is a single FOSS APK.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.3.4",
+          "buildVersion": "9",
+          "date": "2026-08-18T00:00:00-00:00",
+          "localizedDescription": "Draft listing. Unsigned IPA on the GitHub tag; sign it yourself. Android is a single FOSS APK.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.3.3",
+          "buildVersion": "8",
+          "date": "2026-08-18T00:00:00-00:00",
+          "localizedDescription": "Draft listing. No IPA is published on this tag; Android is a single FOSS APK. Build iOS from ports/ios and sign it yourself.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
+        {
+          "version": "0.3.2",
+          "buildVersion": "7",
+          "date": "2026-08-18T00:00:00-00:00",
+          "localizedDescription": "Draft listing. No IPA is published on this tag; Android is a single FOSS APK. Build iOS from ports/ios and sign it yourself.",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "16.0"
+        },
         {
           "version": "0.3.1",
           "buildVersion": "6",
@@ -44,7 +98,6 @@
           "keychain-access-groups"
         ],
         "privacy": {
-          "NSFaceIDUsageDescription": "Face ID unlocks stored volume passwords on this device."
         }
       }
     }

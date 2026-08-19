@@ -2,27 +2,67 @@
 
 ## Unreleased
 
-- Looks skins except Signal are quieter. Desktop chrome is calmer. The app stays in Recents as a blank card (`FLAG_SECURE`); it is not hidden from the task switcher. Home dismounts an open volume but keeps the Create wizard (generated outer and nested passwords, nested checkbox, cipher/KDF/PIM, basket, size) so you can paste Copy once into Notes and continue. That keep-on-Home is intentional: wiping the wizard on minimize made Copy once useless. Dismount and Panic wipe still clear those secrets. Copy once stays on the clipboard for 30 seconds; Panic wipe still clears it. The basket “at least” size includes the nested volume, and tapping the nested label toggles it.
-- Create size follows the file basket. KiB / MiB / GiB is a compact menu. Basket file size uses the Documents SIZE column, then the open file descriptor length, then `file://` length — not a 1 MiB guess when SIZE is missing. exFAT import/delete work inside a folder, not only the volume root. Switching Volume/Tools and back to Create does not wipe the randomness bar; it resets after a volume is created.
-- Set header KDF / add or remove keyfiles keep the current PIM when New PIM is left at 0. Change password still treats 0 as VeraCrypt default.
-- ARM64 AES uses the CPU crypto extension (NEON `vaeseq`) after `DetectArmFeatures()`. ARMv7 stays table AES with NEON. HMAC-SHA-512 is unchanged.
-- Wrap tab removed; leftover `.vcpw` decrypt stays on Tools. Create leads with the file basket. Size is KiB / MiB / GiB (2 MiB–64 GiB). Nested volumes get password, PIM, keyfiles, and generate. Session SHA-256 of basket files; `BASKET.sha256` is written inside the volume.
-- Create volumes as FAT or exFAT. exFAT if a file is over 4 GiB. USB/OTG opens a container file on the stick, not the whole disk.
-- Unlock: text password is primary. Fingerprint / Face ID is an extra keyfile.
-- File name is only a disguise; the extension is ignored.
-- Apple users sign the unsigned IPA themselves (AltStore / Xcode). How to keep the repos public: `PUBLIC.md`. GitHub README has real emulator UI shots (`docs/screenshots/`); Fastlane `phoneScreenshots/` stays empty until a physical phone capture.
-- Honest discovery only: GitHub topics + README snippet, no ad SDK, no analytics. See `PUBLIC.md`.
-- Author footnote: still in a five-year IT engineering degree (graduate summer 2027). Quiet README ask for teaching, internship, or work.
-- Looks APKs share `applicationId` with production: offline `assembleStyledRelease` (`VCPort-0.3.1-looks-preview.apk`, no INTERNET) and tap-to-check `assembleLooksgithubRelease` (`VCPort-0.3.1-looks-github-preview.apk`, same ≤20s HTTPS window as the Desktop GitHub flavor). Installing either replaces the other Desktop/Looks APK. Not F-Droid.
-- Wrap, PIM, keyfile, and container-name fixes: wrap copies then Save-as; Lock clears PIM; custom disguise names stay; any file can be a keyfile (first 1 MiB); container label is the Files name, not `/proc/self/fd`.
-- Wrap keeps the password while Files is open (the picker used to look like leaving the app, which wiped the secret).
-- Create / Choose container / keyfiles also keep the session while Files is open. The selected file is the one you picked or saved (name shown, not `/proc/self/fd` or a cache copy). Home dismounts an open volume; the Create form stays so you can paste Copy once into Notes and continue.
-- Create volume Basket: pick several files, then Create volume copies them into the new container. Volume size grows to fit (max 64 GiB). Originals stay on the phone.
-- Create/Open with phone unlock selected shows the system PIN / fingerprint / face prompt. Dismount wipes passwords, RAM keyfiles, and decrypted copies; remembered Keystore/Keychain factors stay until Panic wipe.
-- Phone UI: same skins and honest copy, less essay. Volume / Create / Tools first; About and desktop leftovers live under Tools. Mounted folders keep Copy/Move on two rows.
-- GitHub README: Hughes quote first, phones first, Mac extra, Looks last, footnote, then “Cypherpunks write code.”
-- Host crypto-safety suite: AES-256 FIPS-197 known-answer, CTR partial blocks, `vc_secure_wipe`, wrap reject-before-Argon2, JNI/enclave mocks, ASan/UBSan. Optional libFuzzer harness `fuzz_wrap.cc`.
-- Host Linux CI links wrap/volume tests without SHA-NI objects or PCSC; overlay inventories refreshed.
+## 0.3.7
+
+Stable alpha: shorter in-app About; several-file copy; Open after Home without `/proc/self/fd`.
+
+- About keeps both Eric Hughes quotes, TrueCrypt attribution, GitHub URL, name, and email. Author footnote stays in the README, not the app.
+- Copy from device / Move from device can pick several files. Copy to device / Move to device send every selected file (Android: a folder in Files when more than one is selected).
+- Native open no longer uses `/proc/self/fd`. Payload import copies into cache first.
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.7.apk`) and an unsigned iOS preview IPA (`VCPort-0.3.7-unsigned-preview.ipa`). Same `applicationId` as 0.3.6; it replaces the old install. Still alpha (not 1.0, not a store build).
+
+## 0.3.6
+
+Stable alpha: Open a saved container after Home or closing the app.
+
+- After Home or closing the app, Open copies the chosen container into app cache when the Files descriptor is gone, instead of failing with “Could not read the container file.”
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.6.apk`) and an unsigned iOS preview IPA (`VCPort-0.3.6-unsigned-preview.ipa`). Same `applicationId` as 0.3.5; it replaces the old install. Still alpha (not 1.0, not a store build).
+
+## 0.3.5
+
+Phone release: wrap UI gone, Volume secrets wipe after Open, quieter Mounted tab.
+
+- Drop wrap (`.vcpw`) from the Android and iOS apps. Copy files in and out of a volume instead.
+- Tools no longer copies Volume PIM into New PIM. Home, save, and Dismount wipe Tools PIM with the other secrets.
+- Mounted tab: one slim action row and a Folder menu instead of a stack of full-width buttons. Slot and file lists are quieter.
+- After a successful Open, the Volume tab clears password, PIM, and mount-option checkboxes. Tools still uses the last unlock in RAM until Dismount.
+- CI builds Android APKs and the unsigned iOS IPA in parallel (`.github/workflows/vcport.yml`). Local: `ports/scripts/build-phones.sh`. Sign the IPA with your Apple Team ID: `VC_PORT_IOS_TEAM=YOUR10CHARID ports/ios/sideload-sign.sh`.
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.5.apk`) and an unsigned iOS preview IPA (`VCPort-0.3.5-unsigned-preview.ipa`). Same `applicationId` as 0.3.4; it replaces the old install.
+
+## 0.3.4
+
+Phone release: session-test fixes on Android and iOS, full app-interface tests.
+
+- Copy/move success is no longer overwritten by “Reading folder…”.
+- Dismount clears backup-header / read-only / TrueCrypt / hidden-protect so the next open is not a wrong-password mix.
+- Add/Remove keyfiles unlocks with the last successful keyfile mix, then writes the new list.
+- App-interface session tests on the Android emulator and iPad Simulator: basket + nested volume, save wipes secrets, reopen, multi-mount copy/move, header backup/restore, KDF, keyfiles. Tests do not tap Panic wipe or Check for updates.
+- Removed `archive/desktop/`. This repo is phone apps plus official VeraCrypt `src/`. On a computer, use official VeraCrypt.
+- iPad Simulator run (`ports/ios/run_ipad_sim.sh`) and Xcode development sideload under your Apple ID (`ports/ios/sideload-sign.sh`).
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.4.apk`) and an unsigned iOS preview IPA (`VCPort-0.3.4-unsigned-preview.ipa`). Same `applicationId` as 0.3.3; it replaces the old install.
+
+## 0.3.3
+
+Phone release: save/open fix, wipe Create secrets after save, Mounted tab.
+
+- After a volume is created and saved, password, PIM, and keyfiles are wiped. Open volume needs the password typed again.
+- Saving a new volume no longer recopies the Files URI over the cache copy (that overwrite made Open fail with "Could not read the container file"). Picker copies go to unique names under cache `containers/`.
+- Dedicated Mounted tab with a desktop-style slot column (8 slots). Volume/Create/Tools stay available while volumes are open. Select several files and Copy to volume / Move to volume across mounted containers.
+- README explains how the phone apps work in plain steps and shows the current Volume, Create, Mounted, and Tools screens.
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.3.apk`). Same `applicationId` as 0.3.2; it replaces the old install.
+
+## 0.3.2
+
+Phone release: official VeraCrypt `src/` with a thin overlay, one FOSS APK, Original and Dark mode.
+
+- `src/` matches official VeraCrypt at the pin. Phone hunks use the same relative paths under `ports/overlay/src/` (`File.cpp`, `Token.cpp`, token headers). Official `Keyfile.cpp` is unchanged.
+- This repo is phones plus original VeraCrypt `src/`. Mac/Linux GUI extras from this fork are frozen under `archive/desktop/` and are not built.
+- GitHub Release ships **one** debug-signed FOSS APK (`VCPort-0.3.2.apk`). The Looks APKs (`styled` / `looksgithub`) are gone. The `github` flavor still builds and is also offline; it is not attached to the release.
+- Appearance is Original (VeraCrypt-like) and Dark mode. Cyberpunk, Matrix, and MAGI live under `archive/looks/`.
+- Several volumes can stay mounted in one session (up to 8). Copy to volume / Move to volume sends a file into the folder last opened on another mounted container. Toolbar Dismount still closes every volume and wipes secrets.
+- Fingerprint / Face ID unlock and in-app Check for updates are not on master; they live on `experimental-biometrics`. Production Android is the `foss` flavor (public source, no trackers, no INTERNET); there is no F-Droid store target.
+- The app stays in Recents as a blank card (`FLAG_SECURE`). Home dismounts an open volume but keeps the Create wizard so Copy once still works.
+- ARM64 AES uses the CPU crypto extension after `DetectArmFeatures()`. ARMv7 stays table AES with NEON. HMAC-SHA-512 is unchanged.
 
 ## 0.3.1
 

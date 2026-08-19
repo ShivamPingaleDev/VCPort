@@ -93,13 +93,17 @@ class TableDrivenTests(unittest.TestCase):
 
 class AirgapTests(unittest.TestCase):
     def test_trusted_hosts_only(self) -> None:
-        net = read("ports/android/app/src/main/java/dev/shivampingale/vcport/TrustedNet.kt")
-        swift = read("ports/ios/VCPort/SourcePin.swift")
-        for blob in (net, swift):
-            self.assertIn("raw.githubusercontent.com", blob)
-            self.assertIn("api.github.com", blob)
-            self.assertIn("www.githubstatus.com", blob)
-            self.assertIn("/repos/veracrypt/VeraCrypt/releases/latest", blob)
+        checker = read("ports/android/app/src/main/java/dev/shivampingale/vcport/UpdateChecker.kt")
+        swift = read("ports/ios/VCPort/UpdateChecker.swift")
+        pin = read("ports/ios/VCPort/SourcePin.swift")
+        self.assertFalse(
+            resolve("ports/android/app/src/main/java/dev/shivampingale/vcport/TrustedNet.kt").exists()
+        )
+        self.assertNotIn("HttpURLConnection", checker)
+        self.assertNotIn("URLSession", swift)
+        self.assertNotIn("TrustedNet", pin)
+        self.assertIn("has no network", checker)
+        self.assertIn("has no network", swift)
 
     def test_allow_table(self) -> None:
         def allow(raw: str) -> bool:
@@ -152,18 +156,18 @@ class AirgapTests(unittest.TestCase):
 
 
 class WhiteBoxTests(unittest.TestCase):
-    def test_fdroid_check_is_a_hard_error_path(self) -> None:
-        fdroid = read(
-            "ports/android/app/src/fdroid/java/dev/shivampingale/vcport/UpdateChecker.kt"
+    def test_foss_check_is_a_hard_error_path(self) -> None:
+        checker = read(
+            "ports/android/app/src/main/java/dev/shivampingale/vcport/UpdateChecker.kt"
         )
-        self.assertIn('error("F-Droid build has no network")', fdroid)
+        self.assertIn('error("This build has no network")', checker)
 
-    def test_github_official_release_failure_is_swallowed(self) -> None:
-        github = read(
-            "ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt"
+    def test_github_flavor_has_no_live_checker(self) -> None:
+        self.assertFalse(
+            resolve(
+                "ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt"
+            ).exists()
         )
-        self.assertIn("catch (_: Exception)", github)
-        self.assertIn("Official VeraCrypt GitHub was unreachable", github)
 
     def test_wrap_rejects_tamper_and_wrong_password(self) -> None:
         wrap = read("ports/shared/test_wrap_main.cpp")
@@ -236,7 +240,7 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("restoreHeaders", sim)
         self.assertIn("HMAC-SHA-256", sim)
         self.assertIn("corruptPrimaryHeader", sim)
-        self.assertIn("FactorCodec.randomBiometricKey", sim)
+        self.assertIn("generateKeyfile", sim)
         self.assertIn("SensitiveClipboard.copyOnce", sim)
         self.assertIn("NativeBridge.createVolume", sim)
         self.assertIn("NativeBridge.wrapFile", sim)
@@ -251,8 +255,9 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("NativeBridge.isOpen", sim)
         self.assertIn("createAndroidComposeRule", ui)
         self.assertIn("Panic wipe", ui)
-        self.assertIn("Stay offline. F-Droid: no network.", ui)
-        self.assertIn("Decrypt wrap", ui)
+        self.assertIn("Stay offline. This build has no network.", ui)
+        self.assertNotIn("Decrypt wrap", ui)
+        self.assertIn("Change volume password", ui)
         self.assertIn("tab_create", ui)
         self.assertIn("generateCopyBackgroundPasteContinue", ui)
         self.assertIn("copy_once", ui)
@@ -268,21 +273,63 @@ class BlackBoxTests(unittest.TestCase):
         self.assertIn("testingAddBasketFiles", slow)
         self.assertIn("input keyevent 3", slow)
         self.assertNotIn("UpdateChecker.check()", slow)
+        session = read(
+            "ports/android/app/src/androidTest/java/dev/shivampingale/vcport/AppInterfaceSessionTest.kt"
+        )
+        self.assertIn("createSaveWipeReopenMountTransferAndSecurity", session)
+        self.assertIn("testingFinishCreateSave", session)
+        self.assertIn("testingTransferNamed", session)
+        self.assertIn("Create secrets were wiped", session)
+        self.assertIn("Copy to volume", session)
+        self.assertIn("Move to volume", session)
+        self.assertIn("protect_hidden", session)
+        self.assertIn("read_only", session)
+        self.assertIn("tools_set_kdf", session)
+        self.assertIn("tools_restore_embedded", session)
+        self.assertIn("testingRestoreHeader", session)
+        self.assertIn("new_folder", session)
+        self.assertIn("AES(Twofish(Serpent))", session)
+        self.assertIn("HMAC-SHA-512", session)
+        self.assertNotIn("UpdateChecker.check()", session)
+        ios_session = read("ports/ios/VCPortTests/AppInterfaceSessionTests.swift")
+        self.assertIn("testCreateSaveWipeReopenMountTransferAndSecurity", ios_session)
+        self.assertIn("finishCreateSave", ios_session)
+        self.assertIn("Create secrets were wiped", ios_session)
+        self.assertIn("AES(Twofish(Serpent))", ios_session)
+        self.assertIn("HMAC-SHA-512", ios_session)
+        self.assertIn("HMAC-SHA-256", ios_session)
+        self.assertIn("Read-only volumes refuse", ios_session)
+        self.assertNotIn("UpdateChecker.check()", ios_session)
+        self.assertNotIn("panicWipe()", ios_session)
+        ios_view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn("applySessionKeyfiles", ios_view)
+        self.assertIn("headerKeyfileURLs", ios_view)
+        self.assertIn("clearMountOptions", ios_view)
+        main = read(
+            "ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt"
+        )
+        self.assertIn("testingFinishCreateSave", main)
+        self.assertIn("testingSkipSystemPickers", main)
+        self.assertIn("testingRestoreHeader", main)
+        self.assertIn("applySessionKeyfiles", main)
+        self.assertIn("tools_change_password", main)
         self.assertIn("Check for updates", ui)
         self.assertIn("Working…", ui)
-        self.assertIn("BuildConfig.ENABLE_SKINS", ui)
-        self.assertIn("Looks (this phone)", ui)
+        self.assertIn("Appearance", ui)
+        self.assertIn("appearanceDarkModeShot", ui)
+        self.assertIn("skin_signal", ui)
+        self.assertNotIn("skin_cyberpunk", ui)
         self.assertIn("ui-test-junit4", gradle)
         self.assertIn("ui-test-manifest", gradle)
         self.assertIn("animationsDisabled true", gradle)
         self.assertIn("AndroidJUnitRunner", gradle)
         self.assertIn("ENABLE_UPDATE_CHECK", gradle)
-        self.assertIn("ENABLE_SKINS", gradle)
+        self.assertNotIn("ENABLE_SKINS", gradle)
         self.assertNotIn("applicationIdSuffix", gradle)
         self.assertIn("vcport-api35", script)
-        self.assertIn("connectedFdroidDebugAndroidTest", script)
-        self.assertIn("connectedStyledDebugAndroidTest", script)
-        self.assertIn("connectedLooksgithubDebugAndroidTest", script)
+        self.assertIn("connectedFossDebugAndroidTest", script)
+        self.assertNotIn("connectedStyledDebugAndroidTest", script)
+        self.assertNotIn("connectedLooksgithubDebugAndroidTest", script)
         cmake = read("ports/shared/CMakeLists.txt")
         self.assertIn("-fgnu89-inline", cmake)
         self.assertIn("armv8-a+crypto", cmake)
@@ -350,21 +397,22 @@ class ModuleTests(unittest.TestCase):
 class IntegrationTests(unittest.TestCase):
     def test_version_json_feeds_portversion_and_plist(self) -> None:
         v = json.loads(read("ports/version.json"))
-        header = read("src/Main/PortVersion.h")
         plist = read("ports/ios/VCPort/Info.plist")
         gradle = read("ports/android/app/build.gradle")
-        self.assertIn(v["upstream_commit"], header)
         self.assertIn(v["upstream_commit"], plist)
         self.assertIn("versionJson.upstream_git", gradle)
-        self.assertIn(v["upstream_git"], header)
+        self.assertIn(v["upstream_git"], plist)
 
     def test_kotlin_and_swift_share_vcf2_module(self) -> None:
-        kotlin = read(
+        kotlin = resolve(
             "ports/android/app/src/main/java/dev/shivampingale/vcport/UnlockFactors.kt"
         )
-        swift = read("ports/ios/VCPort/UnlockFactors.swift")
-        self.assertIn("VCF2\\n", kotlin)
-        self.assertIn("VCF2\\n", swift)
+        swift = resolve("ports/ios/VCPort/UnlockFactors.swift")
+        self.assertTrue(kotlin.is_file())
+        self.assertFalse(swift.exists())
+        blob = kotlin.read_text(encoding="utf-8")
+        self.assertNotIn("VCF2", blob)
+        self.assertIn("copyOwned", blob)
 
     def test_jni_exports_progress(self) -> None:
         jni = read("ports/shared/android_jni.cpp")
@@ -386,6 +434,7 @@ class FunctionalTests(unittest.TestCase):
             self.assertIn("Add keyfiles", blob)
             self.assertIn("Add files to basket", blob)
             self.assertIn("Keyfile generator", blob)
+            self.assertIn("Generate keyfile and add", blob)
 
     def test_progress_is_in_front_of_the_user(self) -> None:
         theme = read(
@@ -394,22 +443,29 @@ class FunctionalTests(unittest.TestCase):
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("fun WorkOverlay", theme)
         self.assertIn("fun SkinProgress", theme)
-        self.assertIn("CpTerm", theme)
-        self.assertIn("MELCHIOR", theme)
-        self.assertIn("BALTHASAR", theme)
-        self.assertIn("CASPER", theme)
-        self.assertIn("UNIT-01", theme)
-        self.assertIn("drawMagiSeal", theme)
-        self.assertIn("drawSkinFrame", theme)
+        self.assertIn('Desktop("Original"', theme)
+        self.assertIn('Signal("Dark mode"', theme)
+        self.assertNotIn("CpTerm", theme)
+        self.assertNotIn("MELCHIOR", theme)
+        self.assertNotIn("BALTHASAR", theme)
+        self.assertNotIn("CASPER", theme)
+        self.assertNotIn("UNIT-01", theme)
+        self.assertNotIn("drawMagiSeal", theme)
+        self.assertNotIn("drawSkinFrame", theme)
         self.assertIn("graphicsLayer", theme)
         self.assertIn("CompositingStrategy.ModulateAlpha", theme)
         self.assertIn("fun SkinTabIndicator", theme)
         self.assertIn("fun SkinCardCap", theme)
         self.assertIn("skinTextFieldColors", theme)
-        self.assertIn("UNIT-01  SYNC", theme)
-        self.assertIn("sys.ready", theme)
-        self.assertTrue(resolve("ports/android/app/src/main/res/drawable/ic_look_magi.xml").is_file())
-        self.assertTrue(resolve("ports/android/app/src/main/res/drawable/ic_look_unit01.xml").is_file())
+        self.assertFalse(resolve("ports/android/app/src/main/res/drawable/ic_look_magi.xml").is_file())
+        self.assertFalse(resolve("ports/android/app/src/main/res/drawable/ic_look_unit01.xml").is_file())
+        self.assertTrue(resolve("archive/looks/VcPortTheme.kt").is_file())
+        self.assertTrue(resolve("archive/looks/drawable/ic_look_magi.xml").is_file())
+        main = read(
+            "ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt"
+        )
+        self.assertIn("Appearance", main)
+        self.assertNotIn("Looks (this phone)", main)
         self.assertIn("struct WorkOverlay", view)
         self.assertIn("Nothing runs out of sight.", theme)
         self.assertIn("Nothing runs out of sight.", view)
@@ -430,7 +486,7 @@ class FunctionalTests(unittest.TestCase):
 class SmokeSanityTests(unittest.TestCase):
     def test_version_json_parses(self) -> None:
         v = json.loads(read("ports/version.json"))
-        self.assertEqual(v["port_version"], "0.3.1")
+        self.assertEqual(v["port_version"], "0.3.7")
         self.assertEqual(len(v["upstream_commit"]), 40)
 
     def test_pin_file_matches_json(self) -> None:
@@ -463,15 +519,15 @@ class SecurityTamperTests(unittest.TestCase):
         self.assertIn("minifyEnabled false", gradle)
         self.assertNotIn("play-services", gradle)
 
-    def test_fdroid_manifest_has_no_internet(self) -> None:
+    def test_foss_manifest_has_no_internet(self) -> None:
         manifest = read("ports/android/app/src/main/AndroidManifest.xml")
-        fdroid_manifest = read("ports/android/app/src/fdroid/AndroidManifest.xml")
-        fdroid = read(
-            "ports/android/app/src/fdroid/java/dev/shivampingale/vcport/UpdateChecker.kt"
+        foss_manifest = read("ports/android/app/src/foss/AndroidManifest.xml")
+        checker = read(
+            "ports/android/app/src/main/java/dev/shivampingale/vcport/UpdateChecker.kt"
         )
         self.assertNotIn("android.permission.INTERNET", manifest)
-        self.assertIn('tools:node="remove"', fdroid_manifest)
-        self.assertIn("has no network", fdroid)
+        self.assertIn('tools:node="remove"', foss_manifest)
+        self.assertIn("has no network", checker)
 
     def test_wrap_uses_hmac(self) -> None:
         wrap = read("ports/shared/vc_wrap.cpp")
@@ -586,7 +642,6 @@ class DifferentialTests(unittest.TestCase):
         blobs = [
             read("ports/android/app/src/main/java/dev/shivampingale/vcport/SourcePin.kt"),
             read("ports/ios/VCPort/SourcePin.swift"),
-            read("src/Main/OfflineUpdate.cpp"),
             read("ports/scripts/check_veracrypt_release.py"),
         ]
         for blob in blobs:
@@ -608,13 +663,7 @@ class DifferentialTests(unittest.TestCase):
             "ports/android/app/src/main/java/dev/shivampingale/vcport/UnlockFactors.kt"
         )
         self.assertIn("catch (_: Exception)", kotlin)
-        self.assertIn("FactorBundle()", kotlin)
-
-    def test_biometric_load_does_not_crash_on_bad_blob(self) -> None:
-        vault = read(
-            "ports/android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt"
-        )
-        self.assertGreaterEqual(vault.count("catch (_: Exception)"), 2)
+        self.assertIn("copyOwned", kotlin)
 
 
 class BoundedFuzzTests(unittest.TestCase):

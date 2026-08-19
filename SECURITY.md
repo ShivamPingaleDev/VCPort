@@ -21,7 +21,7 @@ Please report:
 
 - Volume-open, wrap/unwrap, or key-handling bugs in `ports/shared/`
 - Android / iOS session wipe, backup, or share-sheet leaks
-- StayOffline / update-check network mistakes
+- Stay offline / update-check network mistakes
 - Attribution or license-text errors that would mislead a user
 
 Out of scope: “please make this unbreakable,” “foolproof against Unit 8200 / TAO / Lazarus / CIA,” Play Integrity / SafetyNet ideas,
@@ -39,4 +39,5 @@ APKs, IPAs, or GitHub Release attachments.
 
 GitHub Actions APKs are **debug-signed previews**. Do not attach them to a
 GitHub Release, and do not copy their SHA-256 into `ports/version.json`.
-F-Droid (or `VC_PORT_RELEASE_STORE_FILE`) must sign anything called production.
+`VC_PORT_RELEASE_STORE_FILE` (or your own keystore) must sign anything called
+production.

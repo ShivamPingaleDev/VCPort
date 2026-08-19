@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Device-version and high-threat contract tests.
 
-Run without Android SDK, Xcode, or FUSE-T. These assert that every VC Port
-surface (Android F-Droid, Android GitHub, iOS, macOS overlay, shared native)
+Run without Android SDK or Xcode. These assert that every VC Port
+surface (Android FOSS, Android GitHub, iOS, shared native)
 stays on the same version pin and keeps the FOSS / high-threat defaults.
 """
 
@@ -79,17 +79,16 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("ports/version.json", self.manifest)
 
     def test_port_version_h(self) -> None:
-        h = read("src/Main/PortVersion.h")
-        self.assertRegex(h, rf'#define VC_PORT_VERSION\s+"{re.escape(self.port)}"')
-        self.assertRegex(h, rf'#define VC_PORT_UPSTREAM_VERSION\s+"{re.escape(self.upstream)}"')
-        self.assertRegex(h, rf'#define VC_PORT_UPSTREAM_COMMIT\s+"{re.escape(self.commit)}"')
-        self.assertIn("VC_PORT_UPSTREAM_GIT", h)
-        self.assertIn("https://github.com/veracrypt/VeraCrypt.git", h)
-        self.assertIn("VC_PORT_UPSTREAM_RELEASES", h)
-        self.assertRegex(h, rf'#define VC_PORT_SOURCE_REPO\s+"{re.escape(self.repo)}"')
-        self.assertRegex(h, rf'#define VC_PORT_UPDATE_MANIFEST_URL\s+"{re.escape(self.manifest)}"')
-        self.assertIn("ShivamPingaleDev/Veracrypt_port", h)
-        self.assertIn("ports/version.json", h)
+        plist = read("ports/ios/VCPort/Info.plist")
+        pin = read("ports/android/app/src/main/java/dev/shivampingale/vcport/SourcePin.kt")
+        self.assertIn(self.port, plist)
+        self.assertIn(self.commit, plist)
+        self.assertIn("https://github.com/veracrypt/VeraCrypt.git", plist)
+        self.assertIn("ShivamPingaleDev/Veracrypt_port", plist)
+        self.assertIn("ports/version.json", plist)
+        self.assertIn("BuildConfig.PORT_VERSION", pin)
+        if FULL_TREE:
+            self.assertFalse(resolve("src/Main/PortVersion.h").exists())
 
     def test_upstream_commit_file(self) -> None:
         pin = read("ports/UPSTREAM_COMMIT").strip()
@@ -109,7 +108,7 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn("'x86'", gradle)
         self.assertIn("x86_64", gradle)
         self.assertIn("ENABLE_UPDATE_CHECK", gradle)
-        self.assertIn("ENABLE_SKINS", gradle)
+        self.assertNotIn("ENABLE_SKINS", gradle)
         self.assertNotIn("applicationIdSuffix", gradle)
         self.assertIn("UPSTREAM_GIT", gradle)
         self.assertIn("UPSTREAM_RELEASES", gradle)
@@ -121,47 +120,34 @@ class VersionMatrixTests(unittest.TestCase):
 
     def test_android_update_checkers(self) -> None:
         pin = read("ports/android/app/src/main/java/dev/shivampingale/vcport/SourcePin.kt")
-        fdroid = read("ports/android/app/src/fdroid/java/dev/shivampingale/vcport/UpdateChecker.kt")
-        github = read("ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt")
-        styled = read("ports/android/app/src/styled/java/dev/shivampingale/vcport/UpdateChecker.kt")
-        looksgithub = read(
-            "ports/android/app/src/looksgithub/java/dev/shivampingale/vcport/UpdateChecker.kt"
-        )
+        checker = read("ports/android/app/src/main/java/dev/shivampingale/vcport/UpdateChecker.kt")
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("BuildConfig.PORT_VERSION", pin)
         self.assertIn("BuildConfig.SOURCE_MANIFEST", pin)
         self.assertIn("never downloads or installs", pin)
-        self.assertIn("SourcePin.localVersion", fdroid)
-        self.assertIn("SourcePin.localVersion", github)
-        self.assertIn("SourcePin.manifest", github)
-        self.assertIn("SourcePin.manifest", looksgithub)
-        self.assertIn('error("F-Droid build has no network")', fdroid)
-        self.assertIn('error("Looks build has no network")', styled)
-        self.assertNotIn("INTERNET", styled)
-        self.assertIn("android_apk_sha256", github)
-        self.assertIn("android_apk_sha256", looksgithub)
-        self.assertIn("upstream_commit", github)
-        self.assertIn("upstreamReleases", github)
-        self.assertIn("upstreamReleases", looksgithub)
-        self.assertIn("officialNewer", github)
-        self.assertIn("sourceMoved", github)
-        self.assertIn("sourceDegraded", github)
-        self.assertIn("instanceFollowRedirects = false", github)
-        self.assertIn("instanceFollowRedirects = false", looksgithub)
-        self.assertIn("TrustedNet.allow", github)
-        self.assertIn("TrustedNet.allow", looksgithub)
-        self.assertIn("WINDOW_MS", github)
+        self.assertIn("SourcePin.localVersion", checker)
+        self.assertIn('error("This build has no network")', checker)
+        self.assertNotIn("HttpURLConnection", checker)
+        self.assertNotIn("TrustedNet", checker)
+        self.assertNotIn("Check for updates", main)
         self.assertIn("does not install itself", main)
-        self.assertIn("sync-upstream.sh", main)
         self.assertIn("SourcePin.describeBuild", main)
-        self.assertNotIn("INTERNET", fdroid)
-        net = read("ports/android/app/src/main/java/dev/shivampingale/vcport/TrustedNet.kt")
-        self.assertIn("www.githubstatus.com", net)
-        self.assertIn("api.github.com", net)
-        self.assertIn("raw.githubusercontent.com", net)
+        self.assertIn("sync-upstream.sh", read("ports/UPSTREAM.md"))
+        self.assertFalse(
+            resolve("ports/android/app/src/main/java/dev/shivampingale/vcport/TrustedNet.kt").exists()
+        )
+        self.assertFalse(
+            resolve(
+                "ports/android/app/src/github/java/dev/shivampingale/vcport/UpdateChecker.kt"
+            ).exists()
+        )
+        self.assertFalse(
+            resolve(
+                "ports/android/app/src/looksgithub/java/dev/shivampingale/vcport/UpdateChecker.kt"
+            ).exists()
+        )
         self.assertNotIn("ServerSocket", main)
-        self.assertNotIn("ServerSocket", github)
-        self.assertNotIn("ServerSocket", looksgithub)
+        self.assertNotIn("ServerSocket", checker)
 
     def test_ios_plist_and_xcodegen(self) -> None:
         plist = read("ports/ios/VCPort/Info.plist")
@@ -188,24 +174,27 @@ class VersionMatrixTests(unittest.TestCase):
         self.assertIn(f"CURRENT_PROJECT_VERSION: {self.code}", yml)
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: dev.shivampingale.vcport", yml)
         self.assertIn('iOS: "16.0"', yml)
+        self.assertIn("TARGETED_DEVICE_FAMILY: \"1,2\"", yml)
+        self.assertIn("CODE_SIGN_IDENTITY: Apple Development", yml)
+        self.assertIn("Signing.xcconfig", yml)
+        self.assertIn("<key>UILaunchScreen</key>", plist)
+        self.assertIn("<key>CFBundleExecutable</key>", plist)
+        self.assertIn("UISupportedInterfaceOrientations~ipad", plist)
+        self.assertIn("ios/Signing.local.xcconfig", read("ports/.gitignore"))
 
     def test_ios_update_checker(self) -> None:
         swift = read("ports/ios/VCPort/UpdateChecker.swift")
         pin = read("ports/ios/VCPort/SourcePin.swift")
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("SourcePin.localVersion", swift)
-        self.assertIn("SourcePin.manifestURL", swift)
-        self.assertIn("sourceMoved", swift)
-        self.assertIn("officialNewer", swift)
-        self.assertIn("sourceDegraded", swift)
-        self.assertIn("TrustedNet", pin)
-        self.assertIn("NoRedirect", swift)
-        self.assertIn("completionHandler(nil)", swift)
-        self.assertIn("upstreamReleases", swift)
+        self.assertIn("This build has no network", swift)
+        self.assertNotIn("URLSession", swift)
+        self.assertNotIn("TrustedNet", pin)
+        self.assertNotIn("Check for updates", view)
         self.assertIn("never downloads or installs", pin)
         self.assertIn("SourcePin.describeBuild", view)
         self.assertIn("does not install itself", view)
-        self.assertIn("sync-upstream.sh", view)
+        self.assertIn("sync-upstream.sh", read("ports/UPSTREAM.md"))
 
     def test_official_veracrypt_pin_script(self) -> None:
         import subprocess
@@ -230,23 +219,11 @@ class VersionMatrixTests(unittest.TestCase):
         )
         self.assertEqual(rc.returncode, 0, rc.stderr)
 
-    def test_fdroiddata_current(self) -> None:
-        yml = read("ports/fdroiddata/metadata/dev.shivampingale.vcport.yml")
-        self.assertIn(f"CurrentVersion: {self.port}", yml)
-        self.assertIn(f"CurrentVersionCode: {self.code}", yml)
-        self.assertIn(f"versionName: {self.port}", yml)
-        self.assertIn(f"versionCode: {int(self.code)}", yml)
-        self.assertIn("Name: VC Port", yml)
-        self.assertIn("truecrypt.org", yml.lower())
-        self.assertIn("TrueCrypt License 3.0", yml)
-        self.assertIn("not OSI", yml)
-        self.assertNotIn("Name: VeraCrypt", yml)
-        self.assertIn("Veracrypt_port.git", yml)
-        self.assertIn("subdir: ports/android", yml)
-        self.assertNotIn("VCPort.git", yml)
-        self.assertNotIn("styled", yml)
-        self.assertNotIn("looksgithub", yml)
-        self.assertNotIn(".looks", yml)
+    def test_foss_flavor_is_production(self) -> None:
+        gradle = read("ports/android/app/build.gradle")
+        self.assertIn("foss {", gradle)
+        self.assertNotIn("fdroid {", gradle)
+        self.assertIn(":app:assembleFossRelease", read("ports/android/README.md"))
 
     def test_changelog_mentions_current(self) -> None:
         log = read("ports/CHANGELOG.md")
@@ -263,10 +240,8 @@ class NamingAndAttributionTests(unittest.TestCase):
         self.assertIn("This app is not named VeraCrypt", strings)
         self.assertIn("shivampingaledev@proton.me", strings)
         self.assertIn("shivampingaledev@gmail.com", strings)
-        looks = read("ports/android/app/src/styled/res/values/strings.xml")
-        self.assertIn('<string name="app_name">VC Port Looks</string>', looks)
-        looks_net = read("ports/android/app/src/looksgithub/res/values/strings.xml")
-        self.assertIn('<string name="app_name">VC Port Looks</string>', looks_net)
+        self.assertFalse(resolve("ports/android/app/src/styled").exists())
+        self.assertFalse(resolve("ports/android/app/src/looksgithub").exists())
 
     def test_notice(self) -> None:
         notice = read("ports/NOTICE")
@@ -311,6 +286,8 @@ class NamingAndAttributionTests(unittest.TestCase):
         for blob in (public, foss, ios, readme):
             self.assertIn("sign", blob.lower())
             self.assertIn("Apple ID", blob)
+        self.assertIn("build-phones.sh", foss)
+        self.assertIn("VC_PORT_IOS_TEAM", foss)
         self.assertIn("not named VeraCrypt", public)
         self.assertIn("not unbreakable", public.lower())
         self.assertIn("unsigned", public.lower())
@@ -322,9 +299,32 @@ class NamingAndAttributionTests(unittest.TestCase):
         self.assertIn("no Google Analytics", public)
         self.assertIn("Do **not** title posts", public)
         self.assertIn("PUBLIC.md", readme)
+        self.assertIn("one app", readme.lower())
+        self.assertIn("Not a second app", readme)
         self.assertIn("docs/screenshots/01-volume.png", readme)
-        self.assertIn("docs/screenshots/05-skin-cyberpunk.png", readme)
+        self.assertIn("docs/screenshots/05-mounted.png", readme)
         self.assertIn("docs/screenshots/08-skin-signal.png", readme)
+        self.assertIn("docs/screenshots/ios-01-volume.png", readme)
+        self.assertIn("docs/screenshots/ios-05-mounted.png", readme)
+        self.assertNotIn("docs/screenshots/05-skin-cyberpunk.png", readme)
+        self.assertNotIn("02-wrap.png", readme)
+        self.assertNotIn("ios-ipad-volume.png", readme)
+        self.assertIn("your Apple ID", readme)
+        self.assertNotIn("wrap a file", readme.lower())
+        self.assertIn("TrueCrypt License 3.0", readme)
+        self.assertIn("OSI", readme)
+        self.assertIn("debug-signed", readme.lower())
+        self.assertIn("inherit", readme.lower())
+        self.assertNotIn("apple silicon extras", readme.lower())
+        if FULL_TREE:
+            root = read("README.md")
+            self.assertNotIn("wrap a file", root.lower())
+            self.assertIn("TrueCrypt License 3.0", root)
+            self.assertIn("OSI", root)
+            self.assertIn("debug-signed", root.lower())
+            self.assertIn("inherit", root.lower())
+            self.assertNotIn("apple silicon extras", root.lower())
+
         for blob in (public, readme):
             self.assertIn("internship", blob.lower())
             self.assertIn("teach", blob.lower())
@@ -350,7 +350,7 @@ class NamingAndAttributionTests(unittest.TestCase):
         for rel in (
             "ports/android/app/src/main/res/values/strings.xml",
             "ports/ios/VCPort/Info.plist",
-            "ports/fdroiddata/metadata/dev.shivampingale.vcport.yml",
+            "ports/FOSS.md",
         ):
             text = read(rel)
             self.assertNotRegex(
@@ -381,38 +381,31 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn("backup_rules", manifest)
         self.assertIn("data_extraction_rules", manifest)
 
-    def test_fdroid_removes_internet(self) -> None:
-        fdroid = read("ports/android/app/src/fdroid/AndroidManifest.xml")
-        self.assertIn("android.permission.INTERNET", fdroid)
-        self.assertIn('tools:node="remove"', fdroid)
+    def test_foss_removes_internet(self) -> None:
+        foss = read("ports/android/app/src/foss/AndroidManifest.xml")
+        self.assertIn("android.permission.INTERNET", foss)
+        self.assertIn('tools:node="remove"', foss)
 
-    def test_styled_looks_package_has_no_internet(self) -> None:
-        styled = read("ports/android/app/src/styled/AndroidManifest.xml")
-        self.assertIn("android.permission.INTERNET", styled)
-        self.assertIn('tools:node="remove"', styled)
+    def test_looks_flavors_are_gone(self) -> None:
         gradle = read("ports/android/app/build.gradle")
-        self.assertNotIn("applicationIdSuffix", gradle)
-        self.assertIn("buildConfigField 'boolean', 'ENABLE_SKINS', 'true'", gradle)
+        self.assertNotIn("styled {", gradle)
+        self.assertNotIn("looksgithub {", gradle)
+        self.assertNotIn("ENABLE_SKINS", gradle)
+        self.assertFalse(resolve("ports/android/app/src/styled").exists())
+        self.assertFalse(resolve("ports/android/app/src/looksgithub").exists())
 
-    def test_looksgithub_flavor_has_opt_in_internet_and_skins(self) -> None:
+    def test_github_flavor_has_no_internet(self) -> None:
         gradle = read("ports/android/app/build.gradle")
-        self.assertIn("looksgithub {", gradle)
-        self.assertIn("buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'", gradle)
-        manifest = read("ports/android/app/src/looksgithub/AndroidManifest.xml")
-        self.assertIn("android.permission.INTERNET", manifest)
-        self.assertNotIn('tools:node="remove"', manifest)
-        self.assertIn("user-tapped update check", manifest.lower())
-
-    def test_github_flavor_has_opt_in_internet_only(self) -> None:
+        self.assertNotIn("buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'true'", gradle)
+        self.assertIn("buildConfigField 'boolean', 'ENABLE_UPDATE_CHECK', 'false'", gradle)
         github = read("ports/android/app/src/github/AndroidManifest.xml")
         self.assertIn("android.permission.INTERNET", github)
-        self.assertIn("user-tapped update check", github.lower())
+        self.assertIn('tools:node="remove"', github)
 
     def test_network_security_system_cas_only(self) -> None:
         for rel in (
             "ports/android/app/src/main/res/xml/network_security_config.xml",
             "ports/android/app/src/github/res/xml/network_security_config.xml",
-            "ports/android/app/src/looksgithub/res/xml/network_security_config.xml",
         ):
             xml = read(rel)
             self.assertIn('cleartextTrafficPermitted="false"', xml)
@@ -424,6 +417,29 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn('path="share/"', paths)
         self.assertNotIn('path="."', paths)
         self.assertNotIn("external-path", paths)
+        share = read("ports/android/app/src/main/java/dev/shivampingale/vcport/ShareHelper.kt")
+        self.assertIn("stageInShareDir", share)
+        self.assertIn("sanitizeKeyfileName", share)
+
+    def test_keyfiles_are_multiple_and_desktop_mount_options(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        for blob in (main, view):
+            self.assertIn("Generate keyfile and add", blob)
+            self.assertIn("Add keyfiles", blob)
+            self.assertIn("Use backup header", blob)
+            self.assertIn("TrueCrypt Mode", blob)
+            self.assertIn("PIM (0 = default)", blob)
+            self.assertNotIn("Save extra keyfile for a computer", blob)
+            self.assertNotIn("How it works:", blob)
+            self.assertNotIn("Create phone-unlock keyfile", blob)
+            self.assertNotIn("Unlock with fingerprint", blob)
+            self.assertNotIn("Unlock with Face ID", blob)
+        self.assertIn("copyOwned", read("ports/android/app/src/main/java/dev/shivampingale/vcport/UnlockFactors.kt"))
+        self.assertFalse(
+            (PORTS / "android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt").exists()
+        )
+        self.assertFalse((PORTS / "ios/VCPort/BiometricStore.swift").exists())
 
     def test_backup_excludes_everything(self) -> None:
         backup = read("ports/android/app/src/main/res/xml/backup_rules.xml")
@@ -435,48 +451,142 @@ class AndroidHighThreatTests(unittest.TestCase):
 
     def test_hardening_source_contracts(self) -> None:
         hard = read("ports/android/app/src/main/java/dev/shivampingale/vcport/Hardening.kt")
-        vault = read("ports/android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt")
         self.assertIn("FLAG_SECURE", hard)
         self.assertIn("wipeSessionFiles", hard)
         self.assertIn("vc-in-", hard)
         self.assertIn("fun panic", hard)
-        self.assertIn("vc_port_volume_key", vault)
-        self.assertIn("BiometricVault.KEY_ALIAS", hard)
+        self.assertIn("vc_port_volume_key", hard)
+        self.assertNotIn("BiometricVault", hard)
         self.assertNotIn("takePersistableUriPermission", hard)
 
-    def test_wrap_keeps_password_across_file_picker(self) -> None:
+    def test_pickers_keep_session_across_file_picker(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("holdLockForPicker()", main)
-        self.assertIn("wrapHold", main)
+        self.assertNotIn("wrapHold", main)
         self.assertIn("override fun onResume()", main)
         self.assertIn("holdingForPicker", view)
-        self.assertIn("wrapHold", view)
+        self.assertNotIn("wrapHold", view)
         self.assertIn("holdLock", view)
+
+    def test_tools_pim_is_wiped_and_not_copied_from_volume(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertNotIn("newPim = pim", main)
+        create_wipe = main.split("private fun wipeCreateSecrets()")[1].split("private fun wipeRamSecrets()")[0]
+        self.assertIn('newPimState.value = "0"', create_wipe)
+        leave = main.split("private fun dismountOnLeave()")[1].split("private fun wipeCreateSecrets()")[0]
+        self.assertIn('newPimState.value = "0"', leave)
+        ios_wipe = view.split("private func wipeCreateSecrets()")[1].split("private func clearMountOptions()")[0]
+        self.assertIn('newPim = "0"', ios_wipe)
+        ios_leave = view.split("private func dismountOnLeave()")[1].split("private func isTemporaryContainer")[0]
+        self.assertIn('newPim = "0"', ios_leave)
+
+    def test_volume_unlock_form_wiped_after_successful_open(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn("lastUnlockPassword", main)
+        self.assertIn("lastUnlockPassword", view)
+        self.assertIn("private fun wipeUnlockForm()", main)
+        self.assertIn("private func wipeUnlockForm()", view)
+        self.assertIn("rememberUnlock(text, pimText)", main)
+        self.assertIn("rememberUnlock(text, pimText)", view)
+        android_open = main.split("private fun openVolumeWithFactors")[1].split("private fun handleIncoming")[0]
+        self.assertNotIn("unlockPassword(", android_open)
+        self.assertIn("wipeUnlockForm()", android_open)
+        ios_open = view.split("private func startOpenVolume()")[1].split("private func wipeFile")[0]
+        self.assertNotIn("unlockPassword()", ios_open)
+        self.assertIn("wipeUnlockForm()", ios_open)
+        self.assertIn("unlockPassword(password, useTextPassword)", main)
+        self.assertIn("unlock.pim", view)
+        leave = main.split("private fun dismountOnLeave()")[1].split("private fun wipeCreateSecrets()")[0]
+        self.assertIn("forgetUnlock()", leave)
+        ram = main.split("private fun wipeRamSecrets()")[1].split("private fun resetCreateWizard()")[0]
+        self.assertIn("forgetUnlock()", ram)
+        ios_leave = view.split("private func dismountOnLeave()")[1].split("private func isTemporaryContainer")[0]
+        self.assertIn("forgetUnlock()", ios_leave)
+        ios_lock = view.split("private func lockSession()")[1].split("private func panicWipe()")[0]
+        self.assertIn("forgetUnlock()", ios_lock)
+        form = main.split("private fun wipeUnlockForm()")[1].split("/**")[0]
+        self.assertNotIn("keyfileUrisState", form)
+        ios_form = view.split("private func wipeUnlockForm()")[1].split("private func currentUnlockPaths()")[0]
+        self.assertNotIn("keyfileURLs", ios_form)
 
     def test_choose_container_keeps_session_and_shows_name(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("Selected: $containerLabel", main)
         self.assertNotIn('label = { Text("Container path") }', main)
-        self.assertIn('bindContainerFd(uri, "rw")', main)
+        self.assertNotIn("bindContainerFd", main)
+        self.assertIn("ensureContainerPath", main)
+        self.assertIn("containerPathUsable", main)
+        bind = main.split("private fun bindContainer")[1].split("private fun openVolumeWithFactors")[0]
+        self.assertIn("copyToCache(uri)", bind)
+        self.assertNotIn("/proc/self/fd", bind)
         self.assertIn("Selected: \\(url.lastPathComponent)", view)
-        self.assertIn("That file is selected", main)
-        self.assertIn("That file is selected", view)
+        self.assertIn("ingestPickedContainer", view)
+        self.assertIn("ensureContainerURL", view)
 
-    def test_biometric_strong_only(self) -> None:
-        vault = read("ports/android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt")
-        ios = read("ports/ios/VCPort/BiometricStore.swift")
-        self.assertIn("BIOMETRIC_STRONG", vault)
-        self.assertNotIn("BIOMETRIC_WEAK", vault)
-        self.assertIn("DEVICE_CREDENTIAL", vault)
-        self.assertIn("AES/GCM/NoPadding", vault)
-        self.assertIn("setIsStrongBoxBacked", vault)
-        self.assertIn("fun confirm", vault)
-        self.assertIn("prompt.authenticate(builder.build())", vault)
-        self.assertIn("userPresence", ios)
-        self.assertIn("deviceOwnerAuthentication", ios)
-        self.assertIn("evaluatePolicy(.deviceOwnerAuthentication", ios)
+    def test_wipe_create_secrets_after_save_keeps_cache_volume(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        saver = main.split("val createSaver")[1].split("val toolSaver")[0]
+        self.assertIn("wipeCreateSecrets()", saver)
+        self.assertIn("copyFileToUri", saver)
+        self.assertNotIn("copyContainerAsync", saver)
+        self.assertIn("Create secrets were wiped", saver)
+        self.assertIn("Type the volume password", saver)
+        self.assertIn('File(cacheDir, "containers")', main)
+        self.assertIn("KeyfileIo.uniqueNamed", main)
+        copy = main.split("private fun copyToCache")[1].split("\n}")[0]
+        self.assertIn("uniqueNamed", copy)
+        self.assertNotIn("File(cacheDir, name)", copy)
+        ios_save = view.split("SystemFiles.exportCopy(url: dest)")[1].split("private func openVolume()")[0]
+        self.assertIn("wipeCreateSecrets()", ios_save)
+        self.assertIn("containerURL = dest", ios_save)
+        self.assertNotIn("containerURL = saved", ios_save)
+        self.assertIn("Create secrets were wiped", ios_save)
+        self.assertIn("Create form kept", main)
+        self.assertIn("Create form kept", view)
+
+    def test_mounted_tab_slot_column_on_android_and_ios(self) -> None:
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        self.assertIn('testTag("tab_mounted")', main)
+        self.assertIn("Text(\"Mounted\")", main)
+        self.assertIn("MOUNT_SLOTS = 8", main)
+        self.assertIn("mount_slot_", main)
+        self.assertIn("Select files", main)
+        self.assertIn("Tap one or more files", main)
+        self.assertIn("Switch to it on the Mounted tab.", main)
+        self.assertIn("tabState.intValue = 3", main)
+        self.assertIn("Label(\"Mounted\"", view)
+        self.assertIn("mountSlots = 8", view)
+        self.assertIn("Select files", view)
+        self.assertIn("Tap one or more files", view)
+        self.assertIn("Switch to it on the Mounted tab.", view)
+        self.assertIn("selectedTab = 3", view)
+        self.assertIn("slots are this session only", main.lower())
+        self.assertIn("slots are this session only", view.lower())
+
+    def test_master_has_no_phone_biometrics(self) -> None:
+        vault = PORTS / "android/app/src/main/java/dev/shivampingale/vcport/BiometricVault.kt"
+        store = PORTS / "ios/VCPort/BiometricStore.swift"
+        self.assertFalse(vault.exists())
+        self.assertFalse(store.exists())
+        main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
+        view = read("ports/ios/VCPort/ContentView.swift")
+        gradle = read("ports/android/app/build.gradle")
+        manifest = read("ports/android/app/src/main/AndroidManifest.xml")
+        plist = read("ports/ios/VCPort/Info.plist")
+        self.assertNotIn("androidx.biometric", gradle)
+        self.assertNotIn("USE_BIOMETRIC", manifest)
+        self.assertNotIn("USE_FINGERPRINT", manifest)
+        self.assertNotIn("NSFaceIDUsageDescription", plist)
+        self.assertNotIn("BiometricPrompt", main)
+        self.assertNotIn("BiometricStore", view)
+        self.assertNotIn("Type REMEMBER", main)
+        self.assertNotIn("Type REMEMBER", view)
 
     def test_no_gms_firebase_play_integrity(self) -> None:
         blob = ""
@@ -496,25 +606,26 @@ class AndroidHighThreatTests(unittest.TestCase):
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("compelled", main.lower())
         self.assertIn("not unbreakable", main.lower())
-        self.assertIn("no key escrow", main.lower())
-        self.assertIn("nation-state implant still wins", main.lower())
+        threat = read("ports/THREAT-MODEL.md")
+        self.assertIn("no key escrow", threat.lower())
+        self.assertIn("They still win", threat)
 
     def test_about_has_cypherpunk_quote(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         view = read("ports/ios/VCPort/ContentView.swift")
         for blob in (main, view):
             self.assertIn("We must defend our own privacy if we expect to have any", blob)
+            self.assertIn("Cypherpunks write code", blob)
             self.assertIn("Eric Hughes", blob)
-            self.assertIn("Cypherpunk", blob)
+            self.assertIn("https://github.com/ShivamPingaleDev/Veracrypt_port", blob)
+            self.assertIn("shivampingaledev@proton.me", blob)
+            self.assertNotIn("programming noob", blob.lower())
+            self.assertNotIn("internship", blob.lower())
 
     def test_never_save_history_is_default(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         theme = read("ports/android/app/src/main/java/dev/shivampingale/vcport/VcPortTheme.kt")
         hardening = read("ports/android/app/src/main/java/dev/shivampingale/vcport/Hardening.kt")
-        self.assertIn("var rememberBio by remember { mutableStateOf(false) }", main)
-        self.assertIn("Type REMEMBER", main)
-        self.assertIn("rememberConfirmOpen", main)
-        self.assertIn("hasBio && rememberBio", main)
         self.assertIn("KeyboardType.Password", theme)
         self.assertIn("autoCorrect = false", theme)
         self.assertIn("IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS", hardening)
@@ -539,7 +650,7 @@ class AndroidHighThreatTests(unittest.TestCase):
         self.assertIn("AES(Twofish(Serpent))", native)
         self.assertIn("HMAC-SHA-512", native)
         self.assertIn("standard VeraCrypt", main)
-        self.assertIn("writeSecret", main)
+        self.assertIn("copyOwned", read("ports/android/app/src/main/java/dev/shivampingale/vcport/UnlockFactors.kt"))
         self.assertIn("standard VeraCrypt", view)
         self.assertIn("vc_entropy_add", native)
         self.assertIn("hidden_size_bytes", native)
@@ -572,78 +683,42 @@ class IosHighThreatTests(unittest.TestCase):
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("compelled", view.lower())
         self.assertIn("not unbreakable", view.lower())
-        self.assertIn("no key escrow", view.lower())
-        self.assertIn("nation-state implant still wins", view.lower())
         self.assertIn("Panic", view)
+        threat = read("ports/THREAT-MODEL.md")
+        self.assertIn("no key escrow", threat.lower())
+        self.assertIn("They still win", threat)
 
     def test_never_save_history_is_default(self) -> None:
         view = read("ports/ios/VCPort/ContentView.swift")
-        self.assertIn("rememberBiometrics = false", view)
-        self.assertIn("Type REMEMBER", view)
         self.assertIn("neverSaveHistory()", view)
         self.assertGreaterEqual(view.count("SecureField("), 5)
         self.assertGreaterEqual(view.count(".neverSaveHistory()"), 5)
         self.assertIn("textContentType(.oneTimeCode)", view)
-        self.assertIn("hasBio && remember", view)
 
 
-class MacosDesktopTests(unittest.TestCase):
-    def test_stay_offline_default(self) -> None:
-        prefs = read("src/Main/UserPreferences.h")
-        self.assertIn("StayOffline (true)", prefs)
-        self.assertIn("SaveHistory (false)", prefs)
-        cpp = read("src/Main/UserPreferences.cpp")
-        self.assertIn('formatter.AddEntry (L"SaveHistory", false)', cpp)
-        self.assertIn("never restore volume-path history", cpp)
-        history = read("src/Main/VolumeHistory.cpp")
-        self.assertIn("WipeHistoryFile", history)
-        self.assertIn("ConfirmEnable", history)
-        self.assertNotIn("historyXml", history)
-        frame = read("src/Main/Forms/MainFrame.cpp")
-        self.assertIn("VolumeHistory::ConfirmEnable", frame)
-        filecpp = read("src/Platform/Unix/File.cpp")
-        self.assertIn("TC_IOS", filecpp)
+class MobileSrcOverlayTests(unittest.TestCase):
+    def test_phone_src_hunks_stay(self) -> None:
+        if not FULL_TREE:
+            self.skipTest("src/ lives in Veracrypt_port")
+        official = read("src/Platform/Unix/File.cpp")
+        overlay = read("ports/overlay/src/Platform/Unix/File.cpp")
+        self.assertNotIn("TC_IOS", official)
+        self.assertIn("TC_IOS", overlay)
         keyfile = read("src/Volume/Keyfile.cpp")
-        self.assertIn("TC_IOS", keyfile)
+        self.assertIn("Common/SecurityToken.h", keyfile)
+        self.assertNotIn("TC_ANDROID", keyfile)
+        self.assertIn("TC_PORT_NO_TOKEN", read("ports/overlay/src/Common/SecurityToken.h"))
+        self.assertIn("TC_PORT_NO_TOKEN", read("ports/overlay/src/Common/EMVToken.h"))
 
-    def test_fuse_t_does_not_force_smb(self) -> None:
-        fuse = read("src/Driver/Fuse/FuseService.cpp")
-        self.assertIn("fuseTHasBackend", fuse)
-        self.assertIn("fuseTHasBackend", fuse)
-        self.assertIn("backend=smb", fuse)
-        self.assertIn("go-smb2", fuse)
-        self.assertIn("leave FUSE-T on its default NFS backend", fuse)
-        self.assertIn("Forcing SMB when the backend is missing hangs the mount", fuse)
-
-    def test_port_version_header_exists_for_desktop(self) -> None:
-        self.assertIn("VC_PORT_VERSION", read("src/Main/PortVersion.h"))
-
-    def test_desktop_gui_has_wrap_panic_share(self) -> None:
-        lang = read("src/Common/Language.xml")
-        for key in (
-            "IDM_WRAP_FILE",
-            "IDM_UNWRAP_FILE",
-            "IDM_SHARE_ENCRYPTED",
-            "IDM_PANIC_WIPE",
-            "MACOSX_BIOMETRIC_COMPELLED",
-        ):
-            self.assertIn(f'key="{key}"', lang)
-        make = read("src/Main/Main.make")
-        self.assertIn("PortFileWrap.o", make)
-        self.assertIn("VcWrap.o", make)
-        self.assertIn("MacOSXShare.o", make)
-        frame = read("src/Main/Forms/MainFrame.cpp")
-        self.assertIn("OnPanicWipeMenuItemSelected", frame)
-        self.assertIn("PortFileWrap::WrapFile", frame)
-        self.assertIn("GetPreferences().StayOffline", frame)
-        self.assertIn("PANIC_WIPE_DISMOUNT_FAILED", frame)
-        update = read("src/Main/OfflineUpdate.cpp")
-        self.assertIn("VCPort-OfflineUpdate/", update)
-        self.assertIn("VC_PORT_VERSION", update)
-        self.assertIn("android_apk_sha256", update)
-        self.assertNotIn("VCPort-OfflineUpdate/0.1", update)
-        bio = read("src/Main/MacOSXBiometric.h")
-        self.assertIn("DeleteAllStoredPasswords", bio)
+    def test_no_desktop_fork_extras(self) -> None:
+        if not FULL_TREE:
+            self.skipTest("src/ lives in Veracrypt_port")
+        self.assertFalse(resolve("archive/desktop").exists())
+        self.assertFalse(resolve("src/Main/OfflineUpdate.cpp").exists())
+        self.assertFalse(resolve("src/Main/PortFileWrap.cpp").exists())
+        self.assertFalse(resolve("src/Main/MacOSXBiometric.h").exists())
+        self.assertNotIn("PortFileWrap", read("src/Main/Forms/MainFrame.cpp"))
+        self.assertNotIn("StayOffline", read("src/Main/UserPreferences.h"))
 
 
 class CrossPortGuiParityTests(unittest.TestCase):
@@ -652,7 +727,8 @@ class CrossPortGuiParityTests(unittest.TestCase):
     def test_wrap_panic_share_stay_offline_on_android(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         self.assertIn("Panic wipe", main)
-        self.assertIn("Decrypt wrap", main)
+        self.assertNotIn("Decrypt wrap", main)
+        self.assertNotIn("Leftover wrap", main)
         self.assertIn("Share encrypted", main)
         self.assertIn("Stay offline", main)
         self.assertIn("compelled", main.lower())
@@ -661,7 +737,7 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("64-character password", main)
         lock = main.split("private fun lockSession()")[1].split("private fun panicWipe()")[0]
         self.assertNotIn("SensitiveClipboard.forget", lock)
-        onstop = main.split("override fun onStop()")[1].split("private fun wipeBytes")[0]
+        onstop = main.split("override fun onStop()")[1].split("private fun closeMountedVolume()")[0]
         self.assertIn("dismountOnLeave()", onstop)
         self.assertNotIn("lockSession()", onstop)
         self.assertIn("Create form kept", main)
@@ -671,7 +747,8 @@ class CrossPortGuiParityTests(unittest.TestCase):
     def test_wrap_panic_share_stay_offline_on_ios(self) -> None:
         view = read("ports/ios/VCPort/ContentView.swift")
         self.assertIn("Panic wipe", view)
-        self.assertIn("Decrypt wrap", view)
+        self.assertNotIn("Decrypt wrap", view)
+        self.assertNotIn("Leftover wrap", view)
         self.assertIn("Share encrypted file", view)
         self.assertIn("Stay offline", view)
         self.assertIn("compelled", view.lower())
@@ -683,6 +760,8 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("Create form kept", view)
         self.assertIn("generatePassword(length: Int32 = 64)", read("ports/ios/VCPort/VcMobileBridge.swift"))
         self.assertIn("VC_ENTROPY_NEED = 8192", read("ports/shared/vc_mobile.cpp"))
+        self.assertIn('portTag("copy_once")', view)
+        self.assertIn('portTag("create_password")', view)
 
     def test_volume_tools_on_android_and_ios(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
@@ -720,7 +799,21 @@ class CrossPortGuiParityTests(unittest.TestCase):
             self.assertIn("Copy to device", blob)
             self.assertIn("Move to device", blob)
             self.assertIn("Move from device", blob)
+            self.assertIn("Copy to volume", blob)
+            self.assertIn("Move to volume", blob)
             self.assertIn("Could not delete the original", blob)
+        self.assertIn("OpenMultipleDocuments", main)
+        self.assertIn("OpenDocumentTree", main)
+        self.assertIn("exportManyToDevice", main)
+        self.assertIn("copyUriForNativeImport", main)
+        self.assertIn("allowsMultipleSelection: true", view.split("isPresented: $copyFromDevicePresented")[1].split(".alert")[0])
+        self.assertIn("exportCopy(urls:", view)
+        self.assertIn("Tap one or more files in the volume, then Copy to device.", main)
+        self.assertIn("Tap one or more files in the volume, then Copy to device.", view)
+        imp = main.split("private fun importFromDevice")[1].split("private fun exportToDevice")[0]
+        basket = main.split("private fun importUriIntoVolume")[1].split("private fun copyStreamProgress")[0]
+        self.assertNotIn("/proc/self/fd", imp)
+        self.assertNotIn("/proc/self/fd", basket)
         self.assertIn("importFile", native)
         self.assertIn("deleteFile", native)
         self.assertIn("vc_import_file", header)
@@ -736,7 +829,7 @@ class CrossPortGuiParityTests(unittest.TestCase):
             self.assertIn("BASKET.sha256", blob)
             self.assertIn("Inside the volume", blob)
             self.assertIn("exFAT", blob)
-            self.assertIn("Text password (primary)", blob)
+            self.assertIn("Volume password", blob)
             self.assertIn("will not ask for superuser", blob)
 
     def test_desktop_file_ops_on_android_and_ios(self) -> None:
@@ -752,10 +845,8 @@ class CrossPortGuiParityTests(unittest.TestCase):
             self.assertIn("TrueCrypt Mode", blob)
             self.assertIn("Read-only", blob)
             self.assertIn("Protect hidden volume against damage", blob)
-            self.assertIn("Desktop leftovers", blob)
-            self.assertIn("volume expander", blob.lower())
-            self.assertIn("traveler disk", blob.lower())
-            self.assertIn("rescue disk", blob.lower())
+            self.assertIn("Not on this phone", blob)
+            self.assertNotIn("Desktop leftovers", blob)
         self.assertIn("mkdir", native)
         self.assertIn("wipeFreeSpace", native)
         self.assertIn("vc_mkdir", header)
@@ -765,6 +856,10 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("read_only", header)
         self.assertIn("protect_hidden", header)
         self.assertIn("vc_protection_triggered", header)
+        wipe_android = main[main.find("fun wipeFreeSpace") : main.find("fun restoreEmbeddedHeader")]
+        self.assertIn("protectionTriggered", wipe_android)
+        wipe_ios = view[view.find("func wipeFreeSpace") : view.find("func formatFatStamp")]
+        self.assertIn("protectionTriggered", wipe_ios)
 
     def test_work_is_visual_on_android_and_ios(self) -> None:
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
@@ -784,7 +879,6 @@ class CrossPortGuiParityTests(unittest.TestCase):
         main = read("ports/android/app/src/main/java/dev/shivampingale/vcport/MainActivity.kt")
         helper = read("ports/android/app/src/main/java/dev/shivampingale/vcport/ShareHelper.kt")
         view = read("ports/ios/VCPort/ContentView.swift")
-        desktop = read("src/Main/GraphicUserInterface.cpp")
         for blob in (main, helper, view):
             self.assertIn("photo.jpg", blob)
             self.assertIn("model.safetensors", blob)
@@ -797,16 +891,6 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("pimState", main)
         self.assertIn('pimState.value = "0"', main)
         self.assertIn("sanitizeDisguiseName", helper)
-        self.assertIn("safetensors", desktop)
-        self.assertIn("jpg", desktop)
-
-    def test_desktop_tools_menu_wired(self) -> None:
-        frame = read("src/Main/Forms/MainFrame.cpp")
-        self.assertIn('LangString["IDM_WRAP_FILE"]', frame)
-        self.assertIn('LangString["IDM_UNWRAP_FILE"]', frame)
-        self.assertIn('LangString["IDM_SHARE_ENCRYPTED"]', frame)
-        self.assertIn('LangString["IDM_PANIC_WIPE"]', frame)
-
 
     def test_cmake_cpu_slices_are_explicit(self) -> None:
         cmake = read("ports/shared/upstream-sources.cmake")
@@ -840,8 +924,11 @@ class CrossPortGuiParityTests(unittest.TestCase):
         self.assertIn("-fstack-protector-strong", wrap)
         self.assertIn("-fno-common", wrap)
         self.assertIn("-mbranch-protection=standard", wrap)
+        self.assertIn("overlay.cmake", lists)
+        self.assertIn("Common/Token.cpp", cmake)
+        self.assertNotIn("token_stubs.cpp", lists)
         keyfile = read("src/Volume/Keyfile.cpp")
-        self.assertIn("TC_PORT_NO_TOKEN", keyfile)
+        self.assertNotIn("TC_PORT_NO_TOKEN", keyfile)
         self.assertIn("TC_PORT_NO_TOKEN", lists)
         ios = read("ports/ios/build-native.sh")
         self.assertIn("iphonesimulator", ios)
@@ -916,9 +1003,21 @@ class OverlayInventoryTests(unittest.TestCase):
     def test_owned_and_patched_disjoint(self) -> None:
         owned = set(self._list("ports/overlay/owned.txt"))
         patched = set(self._list("ports/overlay/patched.txt"))
+        replace = set(self._list("ports/overlay/replace.txt"))
         self.assertTrue(owned)
-        self.assertTrue(patched)
+        self.assertFalse(patched)
+        self.assertIn("Platform/Unix/File.cpp", replace)
+        self.assertIn("Common/Token.cpp", replace)
+        self.assertIn("Common/SecurityToken.h", replace)
+        self.assertIn("Common/EMVToken.h", replace)
         self.assertFalse(owned & patched)
+
+    def test_replace_files_exist(self) -> None:
+        if not FULL_TREE:
+            self.skipTest("overlay src/ lives in Veracrypt_port")
+        for rel in self._list("ports/overlay/replace.txt"):
+            self.assertTrue((ROOT / "ports/overlay/src" / rel).is_file(), rel)
+            self.assertTrue((ROOT / "src" / rel).is_file(), rel)
 
     def test_patched_files_exist(self) -> None:
         if not FULL_TREE:

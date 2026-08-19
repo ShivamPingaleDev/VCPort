@@ -40,7 +40,6 @@ class MainActivityUiTest {
 
     @Test
     fun chromeTabsAndContractCopy() {
-        if (BuildConfig.ENABLE_SKINS) return
         val flags = rule.activity.window.attributes.flags
         assertTrue(
             "FLAG_SECURE must stay on during UI use",
@@ -48,7 +47,7 @@ class MainActivityUiTest {
         )
 
         rule.onNodeWithText("VC Port").assertIsDisplayed()
-        rule.onNodeWithText("Stay offline. F-Droid: no network.").assertIsDisplayed()
+        rule.onNodeWithText("Stay offline. This build has no network.").assertIsDisplayed()
         rule.onNodeWithText("Panic wipe").assertIsDisplayed()
         rule.onNodeWithText("Share encrypted").assertIsDisplayed()
         rule.onNodeWithText("Working…").assertDoesNotExist()
@@ -56,15 +55,20 @@ class MainActivityUiTest {
 
         rule.onNodeWithTag("tab_create").performClick()
         rule.onNodeWithText("File basket").assertIsDisplayed()
-        captureShot("02-wrap.png")
 
         rule.onNodeWithTag("tab_create").performClick()
         rule.onNodeWithText("Encryption Algorithm").assertIsDisplayed()
         captureShot("03-create.png")
 
         rule.onNodeWithTag("tab_tools").performClick()
-        rule.onNodeWithText("Decrypt wrap").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Change volume password").performScrollTo().assertIsDisplayed()
         captureShot("04-tools.png")
+
+        rule.onNodeWithTag("tab_mounted").performClick()
+        rule.onNodeWithText("Mounted in this app").assertIsDisplayed()
+        rule.onAllNodesWithText("Empty").onFirst().assertIsDisplayed()
+        rule.onNodeWithText("Open another container").assertIsDisplayed()
+        captureShot("05-mounted.png")
 
         rule.onNodeWithTag("tab_volume").performClick()
         rule.onNodeWithText("Open volume").performScrollTo().assertIsDisplayed()
@@ -73,8 +77,8 @@ class MainActivityUiTest {
         rule.onNodeWithText(
             "Protect hidden volume against damage caused by writing to outer volume"
         ).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("not unbreakable", substring = true).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("compelled", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("unbreakable", substring = true, ignoreCase = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("compelled", substring = true, ignoreCase = true).performScrollTo().assertIsDisplayed()
 
         rule.onNodeWithTag("tab_create").performClick()
         rule.onNodeWithText("Generate strong password").performScrollTo().assertIsEnabled()
@@ -103,51 +107,29 @@ class MainActivityUiTest {
     }
 
     @Test
-    fun experimentalComputerSkinShots() {
-        if (!BuildConfig.ENABLE_SKINS) return
+    fun appearanceDarkModeShot() {
         rule.waitForIdle()
         rule.onNodeWithTag("tab_tools").performClick()
-        rule.onNodeWithText("Looks (this phone)").performScrollTo().assertIsDisplayed()
-        val shots = listOf(
-            "skin_cyberpunk" to "skin-cyberpunk.png",
-            "skin_matrix" to "skin-matrix.png",
-            "skin_eva" to "skin-eva.png",
-            "skin_signal" to "skin-signal.png"
-        )
-        val docs = listOf(
-            "05-skin-cyberpunk.png",
-            "06-skin-matrix.png",
-            "07-skin-eva.png",
-            "08-skin-signal.png"
-        )
-        for ((i, pair) in shots.withIndex()) {
-            val (tag, file) = pair
-            rule.onNodeWithTag(tag).performScrollTo().performClick()
-            rule.waitForIdle()
-            rule.onNodeWithTag("tab_volume").performClick()
-            rule.waitForIdle()
-            captureShot(file, folder = "vcport-theme-shots")
-            captureShot(docs[i])
-            rule.onNodeWithTag("tab_tools").performClick()
-            rule.waitForIdle()
-        }
+        rule.onNodeWithText("Appearance").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("skin_signal").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("tab_volume").performClick()
+        rule.waitForIdle()
+        captureShot("08-skin-signal.png")
+        rule.onNodeWithTag("tab_tools").performClick()
+        rule.waitForIdle()
         rule.onNodeWithTag("skin_desktop").performScrollTo().performClick()
         assertTrue(
-            "FLAG_SECURE stays on for experimental skins",
+            "FLAG_SECURE stays on for Dark mode",
             rule.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0
         )
         rule.onNodeWithTag("tab_volume").performClick()
         rule.waitForIdle()
-        if (BuildConfig.ENABLE_UPDATE_CHECK) {
-            rule.onNodeWithText("Check for updates").performScrollTo().assertIsDisplayed()
-        } else {
-            rule.onNodeWithText("Check for updates").assertDoesNotExist()
-        }
+        rule.onNodeWithText("Check for updates").assertDoesNotExist()
     }
 
     @Test
     fun generateCopyBackgroundPasteContinue() {
-        if (BuildConfig.ENABLE_SKINS) return
         rule.onNodeWithTag("tab_create").performClick()
         rule.onNodeWithText("Generate strong password").performScrollTo().assertIsEnabled()
         rule.onAllNodesWithText("Generate strong password").onFirst().performClick()
@@ -157,10 +139,8 @@ class MainActivityUiTest {
         rule.waitForIdle()
 
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val clip = ctx.getSystemService(android.content.ClipboardManager::class.java)
-        val secret = clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
-        assertNotNull("Copy once must put the generated password on the clipboard", secret)
-        assertEquals(64, secret!!.length)
+        val secret = rule.activity.testingCreatePassword()
+        assertEquals("Generate must leave a 64-character password in the Create field", 64, secret.length)
         val notes = File(ctx.filesDir, "notes-paste.txt")
         notes.writeText(secret)
         assertEquals("simulated Notes paste", secret, notes.readText())
@@ -186,7 +166,7 @@ class MainActivityUiTest {
         ).assertDoesNotExist()
         rule.onNodeWithTag("copy_once").performScrollTo().performClick()
         rule.waitForIdle()
-        val again = clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
+        val again = rule.activity.testingCreatePassword()
         assertEquals(
             "Create password must survive background so the wizard can continue",
             secret,

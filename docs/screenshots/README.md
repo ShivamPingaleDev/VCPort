@@ -1,11 +1,13 @@
 # VC Port UI shots
 
-These PNGs are **real** F-Droid debug UI from emulator AVD `vcport-api35`, captured with Compose `captureToImage` while **FLAG_SECURE stays on**. `adb screencap` is black on purpose (seizure / recents).
+Android PNGs are **real** production debug UI from emulator AVD `vcport-api35`, captured with Compose `captureToImage` while **FLAG_SECURE stays on**. `adb screencap` is black on purpose (seizure / recents).
 
-They are not F-Droid store mockups. Fastlane `phoneScreenshots/` stays empty until a physical phone capture exists.
+iPhone PNGs are **real** Debug UI from iPad Simulator, captured from the running app window. Empty tabs only.
+
+They are not store mockups. Fastlane `phoneScreenshots/` stays empty until a physical phone capture exists.
 
 No volume password, generated secret, or opened-folder listing is in these frames. Not unbreakable.
 
-Looks (this phone) live in the **Looks APKs** on GitHub Release `v0.3.1` (`VCPort-0.3.1-looks-preview.apk` offline, `VCPort-0.3.1-looks-github-preview.apk` tap-to-check), same `applicationId` as the Desktop-only APKs. Shots `05-skin-cyberpunk.png` … `08-skin-signal.png` are from that APK. Desktop (`01`–`04`) is the production F-Droid UI. Installing Looks replaces the Desktop-only APK. The pick is stored on-device only.
+Android: Volume (`01-volume.png`), Create (`03-create.png`), Tools (`04-tools.png`), Mounted (`05-mounted.png`), Dark mode (`08-skin-signal.png`). iPhone: `ios-01-volume.png`, `ios-03-create.png`, `ios-04-tools.png`, `ios-05-mounted.png`. The wrap UI is gone; there is no wrap screenshot. The pick is stored on this phone only. Cyberpunk / Matrix / MAGI shots live under `archive/looks/screenshots/` and are not built.
 
 Contact: Shivam Mangesh Pingale — shivampingaledev@proton.me · shivampingaledev@gmail.com
